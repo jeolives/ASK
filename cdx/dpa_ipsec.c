@@ -220,7 +220,11 @@ static enum qman_cb_dqrr_result ipsec_exception_pkt_handler(struct qman_portal *
 	uint8_t *ptr;
 	uint32_t len;
 	struct sk_buff *skb;
-	struct net_device *net_dev;
+	/* Initialized to NULL so an early 'goto rel_fd' (e.g. for a SEC
+	 * error status) is safe -- dpa_fd_release tolerates a NULL net_dev
+	 * on the frame-release path, matching the existing !net_dev path
+	 * below. */
+	struct net_device *net_dev = NULL;
 	struct dpa_bp *dpa_bp;
 	struct dpa_priv_s               *priv;
 	struct dpa_percpu_priv_s        *percpu_priv;
@@ -238,8 +242,27 @@ static enum qman_cb_dqrr_result ipsec_exception_pkt_handler(struct qman_portal *
 	int no_l2_itf_dev;
 	gro_result_t gro_result;
 	const struct qman_portal_config *pc;
-	struct dpa_napi_portal *np;;
-	/* check SEC errors here */
+	struct dpa_napi_portal *np;
+
+	/*
+	 * SEC-reported error check.
+	 *
+	 * Frames arriving on the IPsec exception FQ have already passed
+	 * through the CAAM Job Ring. On success the SEC zeroes the frame
+	 * descriptor status; on auth-tag mismatch, decrypt/padding failure,
+	 * or SEC internal error it sets non-zero status bits.
+	 *
+	 * Dropping the "check SEC errors here" placeholder from the
+	 * original code and not validating the status would let tampered
+	 * ESP ciphertext be accepted upstream as if it had passed ICV:
+	 * an authentication bypass. Reject anything non-zero.
+	 */
+	if (unlikely(dq->fd.status != 0)) {
+		if (printk_ratelimit())
+			pr_warn_ratelimited("dpa_ipsec: SEC dequeue error status=0x%08x fqid=%u len=%u; dropping\n",
+					    dq->fd.status, dq->fqid, dq->fd.length20);
+		goto rel_fd;
+	}
 #ifdef DPA_IPSEC_DEBUG1
 	DPAIPSEC_INFO("%s::fqid %x(%d), bpid %d, len %d, \n offset %d sts %08x, cnt %d\n", __FUNCTION__,
 			dq->fqid, dq->fqid, dq->fd.bpid, dq->fd.length20,
@@ -317,6 +340,10 @@ static enum qman_cb_dqrr_result ipsec_exception_pkt_handler(struct qman_portal *
 	{
 		DPAIPSEC_ERROR("%s(%d) dpaa_eth_napi_schedule failed\n",
 				__FUNCTION__,__LINE__);
+		/* xfrm_state was held by xfrm_state_lookup_byhandle() above;
+		 * ownership only transfers to the sec_path at sp->xvec[0] = x
+		 * later, so release on this early return. */
+		xfrm_state_put(x);
 		return qman_cb_dqrr_stop;
 	}
 #endif /* CONFIG_FSL_ASK_QMAN_PORTAL_NAPI */
@@ -420,8 +447,12 @@ static enum qman_cb_dqrr_result ipsec_exception_pkt_handler(struct qman_portal *
 	return qman_cb_dqrr_consume;
 #if defined(CONFIG_INET_IPSEC_OFFLOAD) || defined(CONFIG_INET6_IPSEC_OFFLOAD)
 pkt_drop:
+	/* Both goto pkt_drop sites run after xfrm_state_lookup_byhandle()
+	 * succeeded but before ownership is transferred to the sec_path at
+	 * sp->xvec[0] = x. Release x here so it does not leak. */
+	xfrm_state_put(x);
 #endif
-	if (skb) 
+	if (skb)
 		dev_kfree_skb(skb);
 rel_fd:
 	dpa_fd_release(net_dev, &dq->fd);

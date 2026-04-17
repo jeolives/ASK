@@ -14,6 +14,7 @@
 #define _FCILIB_H
 
 #include <linux/netlink.h>
+#include <pthread.h>
 
 /* FCI messages definitions */
 #define FCI_MAX_PAYLOAD 512
@@ -64,7 +65,10 @@ typedef struct t_FCI_CLIENT
 	struct sockaddr_nl src_addr;
 	struct sockaddr_nl dst_addr;
 	int (*event_cb)(unsigned short fcode, unsigned short len, unsigned short *payload);
-	
+	/* Serializes sendmsg + response recv on this client so multiple
+	 * caller threads don't interleave request/response pairs on the
+	 * shared netlink socket. */
+	pthread_mutex_t cmd_mutex;
 } FCI_CLIENT;
 
 

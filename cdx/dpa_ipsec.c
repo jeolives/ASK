@@ -223,7 +223,11 @@ static enum qman_cb_dqrr_result ipsec_exception_pkt_handler(struct qman_portal *
 	uint8_t *ptr;
 	uint32_t len;
 	struct sk_buff *skb;
-	struct net_device *net_dev;
+	/* Initialized to NULL so an early 'goto rel_fd' (e.g. for a SEC
+	 * error status) is safe -- dpa_fd_release tolerates a NULL net_dev
+	 * on the frame-release path, matching the existing !net_dev path
+	 * below. */
+	struct net_device *net_dev = NULL;
 	struct dpa_bp *dpa_bp;
 	struct dpa_priv_s               *priv;
 	struct dpa_percpu_priv_s        *percpu_priv;
@@ -327,6 +331,10 @@ static enum qman_cb_dqrr_result ipsec_exception_pkt_handler(struct qman_portal *
 	{
 		DPAIPSEC_ERROR("%s(%d) dpaa_eth_napi_schedule failed\n",
 				__func__,__LINE__);
+		/* xfrm_state was held by xfrm_state_lookup_byhandle() above;
+		 * ownership only transfers to the sec_path at sp->xvec[0] = x
+		 * later, so release on this early return. */
+		xfrm_state_put(x);
 		return qman_cb_dqrr_stop;
 	}
 #endif /* CONFIG_FSL_ASK_QMAN_PORTAL_NAPI */
@@ -430,8 +438,12 @@ static enum qman_cb_dqrr_result ipsec_exception_pkt_handler(struct qman_portal *
 	return qman_cb_dqrr_consume;
 #if defined(CONFIG_INET_IPSEC_OFFLOAD) || defined(CONFIG_INET6_IPSEC_OFFLOAD)
 pkt_drop:
+	/* Both goto pkt_drop sites run after xfrm_state_lookup_byhandle()
+	 * succeeded but before ownership is transferred to the sec_path at
+	 * sp->xvec[0] = x. Release x here so it does not leak. */
+	xfrm_state_put(x);
 #endif
-	if (skb) 
+	if (skb)
 		dev_kfree_skb(skb);
 rel_fd:
 	dpa_fd_release(net_dev, &dq->fd);

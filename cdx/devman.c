@@ -2103,11 +2103,16 @@ err_ret2:
 err_ret1:
 	proc_remove(((cdx_proc_dir_entry_t *)(iface_info->tx_proc_entry))->proc_dir);
 err_ret:
+	/* Release the netdev reference taken by get_eth_iface_info.
+	 * On success this ref travels with iface_info onto the port list
+	 * and is released when the iface is removed. */
+	if (iface_info->eth_info.net_dev)
+		dev_put(iface_info->eth_info.net_dev);
 	kfree(iface_info);
 	return FAILURE;
 }
 
-int dpa_add_pppoe_if(char *name, struct _itf *itf, struct _itf *phys_itf, 
+int dpa_add_pppoe_if(char *name, struct _itf *itf, struct _itf *phys_itf,
 		uint8_t *mac_addr, uint16_t session_id) 
 {
 	struct dpa_iface_info *iface_info;

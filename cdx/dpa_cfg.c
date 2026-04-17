@@ -184,7 +184,16 @@ static void release_cfg_info(void)
 #define CDX_MAX_DIST_PER_PORT		32
 #define CDX_MAX_TABLES_PER_FMAN		1024
 
-//allocate and copy distribution info from uspace
+/*
+ * Allocate and copy distribution info from userspace.
+ *
+ * Contract: on entry, port_info->dist_info holds a userspace pointer
+ * (restored by the caller from the saved uspace_dist[] array). On
+ * return, port_info->dist_info is always either a kernel allocation
+ * (success) or NULL (any failure) -- never a userspace pointer. This
+ * keeps release_cfg_info()'s unconditional kfree(port_info->dist_info)
+ * safe.
+ */
 static int get_dist_info(struct cdx_port_info *port_info)
 {
 	struct cdx_dist_info *dist_info;
@@ -197,12 +206,14 @@ static int get_dist_info(struct cdx_port_info *port_info)
 	if (port_info->max_dist == 0 || port_info->max_dist > CDX_MAX_DIST_PER_PORT) {
 		DPA_ERROR("%s::max_dist %u out of range\n",
 				__FUNCTION__, port_info->max_dist);
+		port_info->dist_info = NULL;
 		return -EINVAL;
 	}
 	dist_info = kcalloc(port_info->max_dist, sizeof(*dist_info), GFP_KERNEL);
 	if (!dist_info) {
 		DPA_ERROR("%s::memalloc for dist_info failed\n",
 				__FUNCTION__);
+		port_info->dist_info = NULL;
 		return -ENOMEM;
 	}
 	uspace_info = port_info->dist_info;
@@ -211,6 +222,8 @@ static int get_dist_info(struct cdx_port_info *port_info)
 			   port_info->max_dist * sizeof(*dist_info))) {
 		DPA_ERROR("%s::Read dist_info failed port %s\n",
 				__FUNCTION__, port_info->name);
+		kfree(dist_info);
+		port_info->dist_info = NULL;
 		return -EIO;
 	}
 	return 0;
@@ -316,43 +329,77 @@ static int get_port_info(struct cdx_fman_info *finfo)
 				__FUNCTION__);
 		return -EIO;
 	}
-	//put the linux name for the port
-	for (ii = 0; ii < finfo->max_ports; ii++) {
-		struct net_device *dev;
+	/*
+	 * After copy_from_user, port_info[i].dist_info holds userspace
+	 * addresses (they came straight from the caller's struct). If we
+	 * fail between here and get_dist_info() replacing them with kernel
+	 * allocations, release_cfg_info() walks the port array and does
+	 * `kfree(port_info->dist_info)` -- which would kfree a userspace
+	 * pointer and panic. Save the userspace pointers aside and NULL
+	 * the struct field so release_cfg_info skips it on failure;
+	 * restore before each get_dist_info() call.
+	 */
+	{
+		void **uspace_dist;
+		int rc = 0;
 
-		if (port_info->type) {
-			dev = find_osdev_by_fman_params(port_info->fm_index,
-					port_info->index, port_info->type);
-			if (!dev) {
-				DPA_ERROR("%s::could not map port %s\n",
-						__FUNCTION__, port_info->name);
-				return -EIO;
-			} else {
-				strscpy(port_info->name, dev->name, sizeof(port_info->name));
-			}
+		uspace_dist = kcalloc(finfo->max_ports, sizeof(*uspace_dist), GFP_KERNEL);
+		if (!uspace_dist)
+			return -ENOMEM;
+		for (ii = 0; ii < finfo->max_ports; ii++) {
+			uspace_dist[ii] = port_info[ii].dist_info;
+			port_info[ii].dist_info = NULL;
 		}
-#ifdef DPA_CFG_DEBUG
-		DPA_INFO("%s::port %s, fmindex %d, port index %d, port id %d\n",
-				__FUNCTION__, port_info->name,
-				port_info->fm_index,
-				port_info->index,
-				port_info->portid);
-#endif
-		port_info++;
-	}
-	port_info = finfo->portinfo;
-	for (ii = 0; ii < finfo->max_ports; ii++) {
-		int retval;
-		//get dist info for this port
-		retval = get_dist_info(port_info);
-		if (retval)
-			return retval;
-		port_info++;
-	}
-	return 0;
-}	
 
-//allocate and copy cc table info from uspace
+		//put the linux name for the port
+		for (ii = 0; ii < finfo->max_ports; ii++) {
+			struct net_device *dev;
+
+			if (port_info->type) {
+				dev = find_osdev_by_fman_params(port_info->fm_index,
+						port_info->index, port_info->type);
+				if (!dev) {
+					DPA_ERROR("%s::could not map port %s\n",
+							__FUNCTION__, port_info->name);
+					rc = -EIO;
+					goto out_free_uspace_dist;
+				} else {
+					strscpy(port_info->name, dev->name, sizeof(port_info->name));
+				}
+			}
+#ifdef DPA_CFG_DEBUG
+			DPA_INFO("%s::port %s, fmindex %d, port index %d, port id %d\n",
+					__FUNCTION__, port_info->name,
+					port_info->fm_index,
+					port_info->index,
+					port_info->portid);
+#endif
+			port_info++;
+		}
+		port_info = finfo->portinfo;
+		for (ii = 0; ii < finfo->max_ports; ii++) {
+			/* Restore userspace pointer before get_dist_info's
+			 * internal copy_from_user. It will replace it with a
+			 * kernel allocation on success. */
+			port_info->dist_info = uspace_dist[ii];
+			rc = get_dist_info(port_info);
+			if (rc)
+				goto out_free_uspace_dist;
+			port_info++;
+		}
+out_free_uspace_dist:
+		kfree(uspace_dist);
+		return rc;
+	}
+}
+
+/*
+ * Allocate and copy cc table info from userspace. Same contract as
+ * get_dist_info: on entry finfo->tbl_info is a userspace pointer (the
+ * caller restores it from its saved array before calling); on return
+ * it is either a kernel allocation (success) or NULL (any failure),
+ * never a userspace pointer.
+ */
 static int get_cctbl_info(struct cdx_fman_info *finfo)
 {
 	struct table_info *tbl_info;
@@ -361,12 +408,14 @@ static int get_cctbl_info(struct cdx_fman_info *finfo)
 	if (finfo->num_tables == 0 || finfo->num_tables > CDX_MAX_TABLES_PER_FMAN) {
 		DPA_ERROR("%s::num_tables %u out of range\n",
 				__FUNCTION__, finfo->num_tables);
+		finfo->tbl_info = NULL;
 		return -EINVAL;
 	}
 	tbl_info = kcalloc(finfo->num_tables, sizeof(*tbl_info), GFP_KERNEL);
 	if (!tbl_info) {
 		DPA_ERROR("%s::memalloc for table_info failed\n",
 				__FUNCTION__);
+		finfo->tbl_info = NULL;
 		return -ENOMEM;
 	}
 	uspace_info = finfo->tbl_info;
@@ -375,6 +424,8 @@ static int get_cctbl_info(struct cdx_fman_info *finfo)
 			   finfo->num_tables * sizeof(*tbl_info))) {
 		DPA_ERROR("%s::Read tbl_info failed\n",
 				__FUNCTION__);
+		kfree(tbl_info);
+		finfo->tbl_info = NULL;
 		return -EIO;
 	}
 	return 0;
@@ -642,39 +693,82 @@ int cdx_ioc_set_dpa_params(unsigned long args)
 		retval = -EIO;
 		goto err_ret;
 	}
-	if (copy_from_user(&ipr_info, (void *)params.ipr_info,
-				sizeof(struct cdx_ipr_info))) {
-		DPA_ERROR("%s::Read iprv_info failed\n", 
-				__FUNCTION__);
-		retval = -EIO;
-		goto err_ret;
-	}
-	//init the fman handles
-	finfo = fman_info;
-	for (ii = 0; ii < num_fmans; ii++) {
-		if (cdxdrv_get_fman_handles(finfo)) {
-			retval = -EIO;
+	/*
+	 * After copy_from_user, fman_info[i].portinfo and .tbl_info hold
+	 * userspace addresses. release_cfg_info() unconditionally kfrees
+	 * both when rolling back; kfreeing a userspace pointer panics.
+	 * Save the userspace pointers aside, NULL the struct fields so
+	 * release_cfg_info skips them on any early failure, and restore
+	 * just before each per-fman get_port_info() / get_cctbl_info()
+	 * call (both of which replace the fields with kernel allocations).
+	 */
+	{
+		void **uspace_portinfo;
+		void **uspace_tblinfo;
+
+		uspace_portinfo = kcalloc(num_fmans, sizeof(*uspace_portinfo), GFP_KERNEL);
+		if (!uspace_portinfo) {
+			retval = -ENOMEM;
 			goto err_ret;
 		}
-		finfo++;
-	}
-	finfo = fman_info;
-	//init interface stats module
-	if (cdxdrv_init_stats(finfo->muram_handle)) {
-		retval = -EIO;
-		goto err_ret;
-	}
+		uspace_tblinfo = kcalloc(num_fmans, sizeof(*uspace_tblinfo), GFP_KERNEL);
+		if (!uspace_tblinfo) {
+			kfree(uspace_portinfo);
+			retval = -ENOMEM;
+			goto err_ret;
+		}
+		for (ii = 0; ii < num_fmans; ii++) {
+			uspace_portinfo[ii] = fman_info[ii].portinfo;
+			uspace_tblinfo[ii]  = fman_info[ii].tbl_info;
+			fman_info[ii].portinfo = NULL;
+			fman_info[ii].tbl_info = NULL;
+		}
 
-	for (ii = 0; ii < num_fmans; ii++) {
-		//get port info
-		retval = get_port_info(finfo);
-		if (retval)
-			goto err_ret;
-		//get cc table info
-		retval = get_cctbl_info(finfo);
-		if (retval)
-			goto err_ret;
-		finfo++;
+		if (copy_from_user(&ipr_info, (void *)params.ipr_info,
+					sizeof(struct cdx_ipr_info))) {
+			DPA_ERROR("%s::Read iprv_info failed\n",
+					__FUNCTION__);
+			retval = -EIO;
+			goto err_free_uspace_ptrs;
+		}
+		//init the fman handles
+		finfo = fman_info;
+		for (ii = 0; ii < num_fmans; ii++) {
+			if (cdxdrv_get_fman_handles(finfo)) {
+				retval = -EIO;
+				goto err_free_uspace_ptrs;
+			}
+			finfo++;
+		}
+		finfo = fman_info;
+		//init interface stats module
+		if (cdxdrv_init_stats(finfo->muram_handle)) {
+			retval = -EIO;
+			goto err_free_uspace_ptrs;
+		}
+
+		for (ii = 0; ii < num_fmans; ii++) {
+			//get port info — restore userspace pointer right before call
+			finfo->portinfo = uspace_portinfo[ii];
+			retval = get_port_info(finfo);
+			if (retval)
+				goto err_free_uspace_ptrs;
+			//get cc table info — same pattern
+			finfo->tbl_info = uspace_tblinfo[ii];
+			retval = get_cctbl_info(finfo);
+			if (retval)
+				goto err_free_uspace_ptrs;
+			finfo++;
+		}
+		kfree(uspace_portinfo);
+		kfree(uspace_tblinfo);
+		goto continue_after_ptrs;
+err_free_uspace_ptrs:
+		kfree(uspace_portinfo);
+		kfree(uspace_tblinfo);
+		goto err_ret;
+continue_after_ptrs:
+		;
 	}
 	finfo = fman_info;
 	//loop thru all fmans

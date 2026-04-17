@@ -3228,9 +3228,8 @@ static int cdx_create_fragment_bufpool(void)
 
 	//find pools used by ethernet devices and borrow buffers from it
 	if (get_phys_port_poolinfo_bysize(CDX_FRAG_BUFF_SIZE, &frag_info_g.parent_pool_info)) {
-		DPA_ERROR("%s::failed to locate eth bman pool\n", 
+		DPA_ERROR("%s::failed to locate eth bman pool\n",
 				__func__);
-		bman_free_pool(bp->pool);
 		kfree(bp);
 		return -1;
 	}

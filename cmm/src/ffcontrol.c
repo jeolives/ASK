@@ -1670,7 +1670,7 @@ err:
 }
 
 	
-static struct section_hdlr section_handler[] = {
+static const struct section_hdlr section_handler[] = {
 	{
 		.name = "fastforward",
 		.start = section_rule_start_hdlr,
@@ -1721,7 +1721,7 @@ int cmmFcParser(char *confFilePath)
 	int argc;
 	char *argv[ARGC_MAX];
 	void *hdlr_data = NULL;
-	struct section_hdlr *hdlr = NULL;
+	const struct section_hdlr *hdlr = NULL;
 	int i;
 	int ret = 0;
 	fp = fopen(confFilePath , "r");

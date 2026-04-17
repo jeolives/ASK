@@ -472,13 +472,13 @@ static int abm_nl_send_l2flow_msg(struct sock *s, char action, int flags, struct
 	int err = 0;
 
 	skb = nlmsg_new(abm_l2flow_msg_size(), GFP_ATOMIC);
-	if(skb == NULL){
+	if (unlikely(skb == NULL)) {
 		err = -ENOMEM;
 		goto err;
 	}
-	
+
 	nlh = nlmsg_put(skb, 0, 0, L2FLOW_MSG_ENTRY, sizeof(*l2flow_msg), 0);
-	if(nlh == NULL){
+	if (unlikely(nlh == NULL)) {
 		err = -ENOMEM;
 		goto err2;
 	}
@@ -862,7 +862,7 @@ static struct l2flowTable * abm_l2flow_add(struct l2flow *l2flowtmp)
 	key_dst_mac = abm_l2flow_hash_mac(l2flowtmp->daddr);
 	
 	l2flow_entry = kmem_cache_alloc(l2flow_cache, GFP_ATOMIC); // called under soft_irq context
-	if(!l2flow_entry){
+	if (unlikely(!l2flow_entry)) {
 		printk(KERN_ERR "Automatic bridging module error l2flow_cache OOM\n");
 		goto out;
 	}
@@ -963,27 +963,27 @@ static inline int abm_build_l2flow(struct sk_buff *skb, struct l2flow *l2flow_te
 		else {
 
 			vlanh = skb_header_pointer(skb, 0, sizeof(_vlanh), &_vlanh);
-			if(!vlanh)
+			if (unlikely(!vlanh))
 				return -1;
 
 			l2flow_temp->svlan_tag = vlanh->h_vlan_TCI;
 			if (vlanh->h_vlan_encapsulated_proto == htons(ETH_P_8021Q)) {
 				vlanh = skb_header_pointer(skb, sizeof(_vlanh), sizeof(_vlanh), &_vlanh);
-				if(!vlanh) {
+				if (unlikely(!vlanh)) {
 					printk("%s:%d VLAN HEADER NOT FOUND:\n", __func__, __LINE__);
 					return -1;
 				}
 				l2flow_temp->cvlan_tag = vlanh->h_vlan_TCI;
 			}
-		} 
+		}
 		return 0;
 	}
 	else if (ethertype == htons(ETH_P_PPP_SES)){
 		struct pppoe_hdr *ph;
 		struct pppoe_hdr _ph;
-		
+
 		ph = skb_header_pointer(skb, 0, sizeof(_ph), &_ph);
-		if(!ph)
+		if (unlikely(!ph))
 			return -1;
 
 		l2flow_temp->session_id = ph->sid;
@@ -999,7 +999,7 @@ static inline int abm_build_l2flow(struct sk_buff *skb, struct l2flow *l2flow_te
 			struct iphdr _iph;
 			
 			iph = skb_header_pointer(skb, 0, sizeof(_iph), &_iph);
-			if(!iph)
+			if (unlikely(!iph))
 				return -1;
 			
 			l2flow_temp->l3.saddr.ip = iph->saddr;
@@ -1017,7 +1017,7 @@ static inline int abm_build_l2flow(struct sk_buff *skb, struct l2flow *l2flow_te
 			__be16 frag_off;
 			
 			ip6h = skb_header_pointer(skb, 0, sizeof(_ip6h), &_ip6h);
-			if(!ip6h)
+			if (unlikely(!ip6h))
 				return -1;
 			
 			memcpy(l2flow_temp->l3.saddr.ip6, ip6h->saddr.s6_addr, 16);
@@ -1038,7 +1038,7 @@ static inline int abm_build_l2flow(struct sk_buff *skb, struct l2flow *l2flow_te
 			struct tcpudphdr _tcpudph;
 
 			tcpudph = skb_header_pointer(skb, l3_hdr_len, sizeof(_tcpudph), &_tcpudph);
-			if(!tcpudph)
+			if (unlikely(!tcpudph))
 				return -1;
 			
 			l2flow_temp->l4.sport = tcpudph->src;
@@ -1082,7 +1082,7 @@ static unsigned int abm_ebt_hook(void *priv,
 		goto exit0;
 
 	memset(&l2flow_temp, 0, sizeof(l2flow_temp));
-	if(abm_build_l2flow(skb, &l2flow_temp, ethertype) < 0)
+	if (unlikely(abm_build_l2flow(skb, &l2flow_temp, ethertype) < 0))
 		goto exit0;
 
 	spin_lock(&abm_lock);
@@ -1090,7 +1090,7 @@ static unsigned int abm_ebt_hook(void *priv,
 	if (hooknum == NF_BR_FORWARD) {
 		if((l2flow_entry = abm_l2flow_find(&l2flow_temp)) == NULL){
 			/* New entry */
-			if((l2flow_entry = abm_l2flow_add(&l2flow_temp)) == NULL)
+			if (unlikely((l2flow_entry = abm_l2flow_add(&l2flow_temp)) == NULL))
 				goto exit1;
 				
 			l2flow_entry->state = L2FLOW_STATE_SEEN;

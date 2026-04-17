@@ -84,7 +84,7 @@
  *   get_eth_iface_info         - process, ioctl.
  */
 DEFINE_SPINLOCK(dpa_devlist_lock);
-struct dpa_iface_info *dpa_interface_info;
+struct dpa_iface_info *dpa_interface_info __read_mostly;
 
 static int dpa_get_tx_l2info_by_iface(struct dpa_iface_info *iface_info,
 		struct dpa_l2hdr_info *l2_info, uint32_t hash);

@@ -29,7 +29,6 @@
 #include "itf.h"
 #include "pppoe.h"
 #include "ffbridge.h"
-#include "module_lro.h"
 #include "route_cache.h"
 #include "module_rx.h"
 
@@ -342,9 +341,6 @@ static void __itf_remove(struct interface *itf)
 #ifdef VLAN_FILTER
        del_itf_bridge_vlan_info(itf);
 #endif
-	if (__itf_is_l2tp(itf))
-		l2tp_itf_del(itf_table.fci_handle, itf);
-
 	list_del(&itf->list);
 	free(itf);
 }
@@ -496,7 +492,6 @@ static void __itf_update(struct interface_table *ctx, struct interface *itf, str
 #ifdef WIFI_ENABLE
 proceed_to_lro:
 #endif
-	lro_interface_update(itf);
 
 out:
 	cmm_print(DEBUG_INFO, "%s: itf: %lx, ifindex: %d, phys_ifindex: %d, flags: %x\n", __func__, (unsigned long)itf, itf->ifindex, itf->phys_ifindex, itf->itf_flags);
@@ -608,14 +603,6 @@ static void __updatelink(struct interface_table *ctx, struct ifinfomsg *ifi, str
 				__tunnel_del(ctx->fci_handle, ctx->fci_key_handle, itf);
 			else
 				__tunnel_update(ctx->fci_handle, itf);
-	}
-	else if (__itf_is_l2tp(itf))
-	{
-		if (__itf_is_up(itf))
-			/* L2TP interface being a virtual interface, the physical and logical ifindices are the same */
-			l2tp_itf_add(ctx->fci_handle, ADD, itf);
-		else
-			__l2tp_itf_del(ctx->fci_handle, itf);
 	}
 	else
 	{
@@ -1157,7 +1144,7 @@ int __itf_is_pointopoint(struct interface *itf)
 
 int __itf_is_pppoe(struct interface *itf)
 {
-	if ((itf->type == ARPHRD_PPP) && !(itf->itf_flags & ITF_L2TP))
+	if (itf->type == ARPHRD_PPP)
 		return 1;
 
 	return 0;
@@ -1200,13 +1187,6 @@ int __itf_is_tunnel(struct interface *itf)
 	return 0;
 }
 
-int __itf_is_l2tp(struct interface *itf)
-{
-	if (itf->itf_flags & ITF_L2TP)
-		return 1;
-
-	return 0;
-}
 
 #ifndef VLAN_FILTER
 int __itf_get_from_bridge_port(int ifindex, int port)
@@ -1350,7 +1330,7 @@ int itf_name_update(FCI_CLIENT *fci_handle, struct gemac_port *port)
 
 	cmm_print(DEBUG_INFO, "%s: port mapping %d <=> %s\n", __func__, cmd.port_id, cmd.ifname);
 
-	if (FPP_ERR_OK != (ret = fci_write(fci_handle, FPP_CMD_PORT_UPDATE , sizeof(cmd), (unsigned short *) &cmd)))
+	if (FPP_ERR_OK != (ret = fci_write(fci_handle, FPP_CMD_PORT_UPDATE , sizeof(cmd), &cmd)))
 	{
 		cmm_print(DEBUG_CRIT, "%s: Port update failed in FPP %d \n", __func__, ret);
 		return -1;

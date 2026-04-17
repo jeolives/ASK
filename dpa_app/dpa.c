@@ -253,7 +253,7 @@ static int set_fm_adv_options(struct cdx_fman_info *finfo)
 	fdev = FM_Open(finfo->index);
 	if (!fdev) {
 		printf("%s::could not open fm device\n",
-			__FUNCTION__);
+			__func__);
 		return -1;
 	}
 	memset(&fm_pcd_params, 0, sizeof(t_FmPcdParams));
@@ -261,12 +261,12 @@ static int set_fm_adv_options(struct cdx_fman_info *finfo)
 	handle = FM_PCD_Open(&fm_pcd_params);
 	if (!handle) {
 		printf("%s::could not open pcd fm %d\n",
-			__FUNCTION__, finfo->index);
+			__func__, finfo->index);
 		return -1;
 	}
 	if (FM_PCD_Disable(handle) != E_OK) {
 		printf("%s::could not disable pcd fm %d\n",
-			__FUNCTION__, finfo->index);
+			__func__, finfo->index);
 		return -1;
 	}
 	finfo->fm_handle = handle;
@@ -311,7 +311,7 @@ static int get_port_info(struct cdx_fman_info *finfo)
 	uint32_t jj;
 
 	if (!cmodel.port_count) {
-		printf("%s::fm %d, no port info\n", __FUNCTION__, 
+		printf("%s::fm %d, no port info\n", __func__, 
 				finfo->index);
 		return 0;
 	}
@@ -319,7 +319,7 @@ static int get_port_info(struct cdx_fman_info *finfo)
 	ports = 0;
 	for (ii = 0; ii < cmodel.port_count ; ii++) {
 #ifdef DPA_C_DEBUG
-		printf("%s::port %s\n", __FUNCTION__,
+		printf("%s::port %s\n", __func__,
 				cmodel.port[ii].name);
 #endif
 		//FM  name would be fm0, fm1 etc
@@ -334,14 +334,14 @@ static int get_port_info(struct cdx_fman_info *finfo)
 		size += (cmodel.port[ii].schemes_count * sizeof(struct cdx_dist_info));
 	}
 	if (!ports) {
-		printf("%s::no ports with fm%d\n", __FUNCTION__,
+		printf("%s::no ports with fm%d\n", __func__,
 			finfo->index);
 		return 0;
 	}
 	pinfo = (struct cdx_port_info *) calloc(1, size);
 	if (!pinfo) {
 		printf("%s::unable to allocate mem for port info\n",
-				__FUNCTION__);
+				__func__);
 		goto err_ret;
 	}
 	port_info = pinfo;
@@ -378,7 +378,7 @@ static int get_port_info(struct cdx_fman_info *finfo)
 				port_info->type = 10;
 				break;
 			default:
-				printf("%s::unhandled type %d\n", __FUNCTION__,
+				printf("%s::unhandled type %d\n", __func__,
 					cmodel.port[ii].type);
 				break;
 		}
@@ -391,12 +391,12 @@ static int get_port_info(struct cdx_fman_info *finfo)
 			dist_info->type = get_dist_type(&cmodel.scheme_name[handle][0]);
 			if (dist_info->type == -1) {
 				printf("%s::unable to get type for dist %s\n", 
-					__FUNCTION__, &cmodel.scheme_name[handle][0]);
+					__func__, &cmodel.scheme_name[handle][0]);
 			}
 			dist_info->count = 
 				cmodel.scheme[handle].keyExtractAndHashParams.hashDistributionNumOfFqids;
 #ifdef DPA_C_DEBUG
-			printf("%s:: port %d, iter %d scheme %s handle %d basefqid %x(%d), count %d type %d\n",  __FUNCTION__,
+			printf("%s:: port %d, iter %d scheme %s handle %d basefqid %x(%d), count %d type %d\n",  __func__,
 				ii, jj, &cmodel.scheme_name[handle][0], handle, dist_info->base_fqid, 
 				dist_info->base_fqid, dist_info->count, dist_info->type);
 #endif
@@ -480,7 +480,7 @@ static void create_tbl_portmap(struct table_info *tbl_info, uint32_t tbl_index)
 		port++;
 	}
 #ifdef DPA_C_DEBUG
-	printf("%s::tbl %s portmap %08x\n", __FUNCTION__,
+	printf("%s::tbl %s portmap %08x\n", __func__,
 			tbl_info->name, tbl_info->port_idx);
 #endif
 }
@@ -497,14 +497,14 @@ static int get_table_info(struct cdx_fman_info *fman_info)
 	//get count of number of hash tables and exact match tables
 	count = (cmodel.ccnode_count + cmodel.htnode_count);
 	if (!count) {
-		printf("%s::no tables defined\n", __FUNCTION__);
+		printf("%s::no tables defined\n", __func__);
 		return 0;
 	}
 	//allocate memory for as many tables for this fman instance 
 	info = (struct table_info *)
 		calloc(1, (count * sizeof(struct table_info)));
 	if (!info) {
-		printf("%s::unable to alloc table info\n", __FUNCTION__); 
+		printf("%s::unable to alloc table info\n", __func__); 
 		retval = -1;
 		goto func_ret;
 	}
@@ -545,7 +545,7 @@ static int get_table_info(struct cdx_fman_info *fman_info)
 					//neither of the two....	
                                 	printf("%s::unable to parse "
                                         	"node name %s\n",
-                                        	__FUNCTION__, tblname);
+                                        	__func__, tblname);
                                		retval = -1;
                                		goto func_ret;
 				}
@@ -561,7 +561,7 @@ static int get_table_info(struct cdx_fman_info *fman_info)
 				handle = cmodel.ccnode_handle[ii];
 #ifdef DPA_C_DEBUG
 				printf("%s::found non-hash tbl %s\n", 
-					__FUNCTION__, 
+					__func__, 
 					info->name);
 #endif
 			} else {
@@ -576,7 +576,7 @@ static int get_table_info(struct cdx_fman_info *fman_info)
 				handle = cmodel.htnode_handle[ii];
 #ifdef DPA_C_DEBUG
 				printf("%s::found hash tbl %s table mask %x\n", 
-					__FUNCTION__,
+					__func__,
 					info->name, info->num_sets);
 #endif
 			}
@@ -587,7 +587,7 @@ static int get_table_info(struct cdx_fman_info *fman_info)
 			//fill app table type
 			if (get_tbl_params(info)) {
 				printf("%s::unable to get params for table %s\n", 
-					__FUNCTION__, info->name); 
+					__func__, info->name); 
 				return -1;
 			}
 			info++;
@@ -595,12 +595,12 @@ static int get_table_info(struct cdx_fman_info *fman_info)
 		}
 	}
 	if (!num_tables) {
-		printf("%s::fm %d, no tables defined\n", __FUNCTION__, 
+		printf("%s::fm %d, no tables defined\n", __func__, 
 			fman_info->index);	
 		goto func_ret;
 	}	
 #ifdef DPA_C_DEBUG
-	printf("%s::fm %d, num tables %d\n", __FUNCTION__, 
+	printf("%s::fm %d, num tables %d\n", __func__, 
 			fman_info->index, num_tables);
 #endif
 func_ret:
@@ -697,7 +697,7 @@ static int set_reassembly_params(struct fmc_model_t *model)
 			      uint8_t *ptr;
 
 			        ptr = (uint8_t *)&model->htnode[index];
-				printf("%s::node %s:: %p\n", __FUNCTION__, model->htnode_name[index],
+				printf("%s::node %s:: %p\n", __func__, model->htnode_name[index],
 					ptr);
 			        for (ii = 0; ii < sizeof(t_FmPcdHashTableParams); ii++) {
 			                if ((ii % 16) == 0)
@@ -733,7 +733,7 @@ void set_exptrate_policer_defaults(struct cdx_fman_info *fman_info)
                                 fman_info->expt_rate_limit_info[ii].limit = DISABLE_EXPT_PROFILE;
                                 break;
                 }
-                printf("%s::set limit for type %d as %d\n",  __FUNCTION__,
+                printf("%s::set limit for type %d as %d\n",  __func__,
                         ii, fman_info->expt_rate_limit_info[ii].limit);
                 fman_info->expt_rate_limit_info[ii].handle = 0;
         }
@@ -761,7 +761,7 @@ int dpa_init(void)
         snprintf(devname, sizeof(devname), "/dev/%s", CDX_CTRL_CDEVNAME);
         cdx_dev_handle = open(devname, O_RDWR);
         if (cdx_dev_handle < 0) {
-                printf("%s:unable to open dev %s\n", __FUNCTION__,
+                printf("%s:unable to open dev %s\n", __func__,
                         devname);
                 return -1;
         }
@@ -770,7 +770,7 @@ int dpa_init(void)
 			NULL);
 	if (retval) {
 		printf("%s::unable to compile fmc input files, err %d\n",
-			__FUNCTION__, retval);
+			__func__, retval);
                 return -1;
 	}
 	retval = -1;
@@ -778,14 +778,14 @@ int dpa_init(void)
 	memset(&params, 0, sizeof(struct cdx_ctrl_set_dpa_params));
 	params.num_fmans = cmodel.fman_count;
 	if (!cmodel.fman_count) {
-		printf("%s::no cfg info in model\n", __FUNCTION__);
+		printf("%s::no cfg info in model\n", __func__);
 		return -1;
 	}
 	fman_info = (struct cdx_fman_info *)
 		calloc (1, (sizeof(struct cdx_fman_info) * params.num_fmans));
 	if (!fman_info) {
 		printf("%s::unable to allocate mem for fman info\n",
-			__FUNCTION__);
+			__func__);
 		goto err_ret;
 	}
 	params.fman_info = fman_info;
@@ -794,7 +794,7 @@ int dpa_init(void)
                 calloc (1, (sizeof(struct cdx_ipr_info) * params.num_fmans));
         if (!params.ipr_info) {
                 printf("%s::unable to allocate mem for ipr info\n",
-                        __FUNCTION__);
+                        __func__);
                 goto err_ret;
         }
         params.ipr_info->timeout = IPR_TIMEOUT;
@@ -804,13 +804,13 @@ int dpa_init(void)
         params.ipr_info->ipr_ctx_bsize = IPR_CTX_BSIZE;
         params.ipr_info->ipr_frag_bsize = IPR_FRAG_BSIZE;
 #ifdef DPA_C_DEBUG
-	printf("%s::fman count %d\n", __FUNCTION__,
+	printf("%s::fman count %d\n", __func__,
 			cmodel.fman_count);
 #endif
 	for (ii = 0; ii < cmodel.fman_count; ii++) {	
 		fman_info->index = cmodel.fman[ii].number ;
 #ifdef DPA_C_DEBUG
-		printf("%s::fman index %d\n", __FUNCTION__,
+		printf("%s::fman index %d\n", __func__,
 			cmodel.fman[ii].number);
 #endif
 		fman_info->max_ports = cmodel.fman[ii].port_count;
@@ -821,23 +821,23 @@ int dpa_init(void)
 		fman_info++;
 	}
 #ifdef DPA_C_DEBUG
-	printf("%s::executing fman model\n", __FUNCTION__);
+	printf("%s::executing fman model\n", __func__);
 #endif
 	 //set reassembly parameters for those tables
         if (set_reassembly_params(&cmodel)) {
-                printf("%s::unable to set reassembly params in FMC Model\n", __FUNCTION__);
+                printf("%s::unable to set reassembly params in FMC Model\n", __func__);
                 return -1;
         }
 	//load compiled cfg it into the FMAN	
 	if (fmc_execute(&cmodel)) {
-                printf("%s::unable to execute the FMC Model\n", __FUNCTION__);
+                printf("%s::unable to execute the FMC Model\n", __func__);
                 return -1;
         }
 	fman_info = params.fman_info;
 	for (ii = 0; ii < cmodel.fman_count; ii++) {	
 		if (update_port_dist_info(fman_info)) {
 #ifdef DPA_C_DEBUG
-			printf("%s::cmodel.fman_count failed fman index %d\n", __FUNCTION__,
+			printf("%s::cmodel.fman_count failed fman index %d\n", __func__,
 				cmodel.fman[ii].number);
 #endif
 			goto err_ret;
@@ -845,7 +845,7 @@ int dpa_init(void)
 		fman_info++;
 	}
 #ifdef DPA_C_DEBUG
-	printf("%s::fmc_execute complete\n", __FUNCTION__);
+	printf("%s::fmc_execute complete\n", __func__);
 	display_model(&cmodel);
 	sleep(3);
 #endif
@@ -872,7 +872,7 @@ int dpa_init(void)
         retval = ioctl(cdx_dev_handle, CDX_CTRL_DPA_SET_PARAMS,
                         &params);
 	if (retval) 
-        	printf("%s:set params ioctl failed\n", __FUNCTION__);
+        	printf("%s:set params ioctl failed\n", __func__);
 err_ret:
 	//release resources allocated
 	fman_info = params.fman_info;
@@ -890,7 +890,7 @@ err_ret:
     		free(params.ipr_info);
 	//close device in case of any failure.
 	if (retval) {
-	        printf("%s::retval %d\n", __FUNCTION__, retval);
+	        printf("%s::retval %d\n", __func__, retval);
 		close(cdx_dev_handle);
 	}
 	return retval;

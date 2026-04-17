@@ -145,21 +145,19 @@ int __cmmSATunnelRegister(FCI_CLIENT *fci_handle, struct SATable* SAEntry)
 	SAEntry->Sa_flow.flow_flags = FLOWFLAG_SA_ROUTE;
 
 	rc = __cmmRouteRegister(&SAEntry->tnl_rt, &SAEntry->Sa_flow, "sa");
-#if LINUX_VERSION_CODE >= KERNEL_VERSION(3,19,0)
-/* 
-   In 3.19 kernel, neighbor entry in linux neighbor cache is not created during the creation of route entry
-   in linux route cache as was done in previous versions. Consider a scenario where an SA is waiting for a
-   neigbor 'X' and some other connection creates this neigbor entry 'X' in CMM. Now the neigbor creation
+/*
+   Neighbor entry in linux neighbor cache is not created during the creation of route entry
+   in linux route cache. Consider a scenario where an SA is waiting for a
+   neighbor 'X' and some other connection creates this neighbor entry 'X' in CMM. Now the neighbor creation
    event received by CMM will be ignored since neighbor entry is already present in CMM and no changes were
    made to neighbor entry. SA waiting for neighbor will never know the creation of neighbor entry 'X' in CMM.
-   To fix this a dummy entry in created in CMM if the required neighbor entry is not present in linux neighbor cache. 
+   To fix this a dummy entry is created in CMM if the required neighbor entry is not present in linux neighbor cache.
 */
 	if(SAEntry->tnl_rt.route && !SAEntry->tnl_rt.route->neighEntry)
 	{
 		SAEntry->tnl_rt.route->neighEntry = __cmmNeighAdd(SAEntry->tnl_rt.route->family, SAEntry->tnl_rt.route->gwAddr, SAEntry->tnl_rt.route->oifindex);
 		SAEntry->tnl_rt.route->neighEntry->count++;
 	}
-#endif
 	if (rc < 0)
 		goto program;
 
@@ -175,7 +173,7 @@ program:
 	/* Send the tunnel command to FPP */
 	if (SAEntry->flags & FPP_NEEDS_UPDATE)
 	{
-		if (cmmKeyEnginetoIPSec(fci_handle, FPP_CMD_IPSEC_SA_TNL_ROUTE, sizeof(CommandIPSecSetTunnelRoute),(unsigned short*) &cmd_set_tnl_route) < 0)
+		if (cmmKeyEnginetoIPSec(fci_handle, FPP_CMD_IPSEC_SA_TNL_ROUTE, sizeof(CommandIPSecSetTunnelRoute),&cmd_set_tnl_route) < 0)
 		{
 			cmm_print(DEBUG_ERROR, "%s:cmmKeyEnginetoIPSec failed while setting tunnel route:\n", __func__);
 			return -1;
@@ -335,7 +333,7 @@ int cmmSADelete(FCI_CLIENT *fci_handle, PCommandIPSecDeleteSA pSA_cmd)
 		goto out;
 	}
 	cmm_print(DEBUG_INFO, "%s(%d) SA %p, XFRM handle %x, SPI %x\n",
-		__FUNCTION__,__LINE__,pSAEntry, pSA_cmd->sagd,pSAEntry->SAInfo.id.spi);
+		__func__,__LINE__,pSAEntry, pSA_cmd->sagd,pSAEntry->SAInfo.id.spi);
 	
 #ifndef IPSEC_FLOW_CACHE
 	pSAEntry->flags |= SA_DELETE;
@@ -410,7 +408,7 @@ int cmmSASetOffloadState(FCI_CLIENT *fci_handle, unsigned short sagd, bool offlo
 	offload_status_change.sagd = sagd;
 	offload_status_change.action = offload_status;
 	if (cmmKeyEnginetoIPSec(fci_handle, FPP_CMD_IPSEC_SA_ACTION_OFFLOAD, sizeof(struct nlkey_sa_notify),
-		(unsigned short *)&offload_status_change) < 0)
+		&offload_status_change) < 0)
 	{
 		cmm_print(DEBUG_INFO,"%s: FPP_CMD_IPSEC_SA_ACTION_OFFLOAD failed", __func__);
 		rc = -1;

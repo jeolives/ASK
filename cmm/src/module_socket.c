@@ -398,7 +398,7 @@ static int socket4_send_cmd(FCI_CLIENT *fci_handle, int action, struct socket *s
 
 		cmd.id = s->id;
 
-		ret = fci_write(fci_handle, FPP_CMD_IPV4_SOCK_CLOSE, sizeof(fpp_socket4_close_cmd_t), (unsigned short *) &cmd);
+		ret = fci_write(fci_handle, FPP_CMD_IPV4_SOCK_CLOSE, sizeof(fpp_socket4_close_cmd_t), &cmd);
 		if (ret == FPP_ERR_OK)
 		{
 			s->flags &= ~FPP_PROGRAMMED;
@@ -562,7 +562,7 @@ static int socket6_send_cmd(FCI_CLIENT *fci_handle, int action, struct socket *s
 
 		cmd.id = s->id;
 
-		ret = fci_write(fci_handle, FPP_CMD_IPV6_SOCK_CLOSE, sizeof(fpp_socket6_close_cmd_t), (unsigned short *) &cmd);
+		ret = fci_write(fci_handle, FPP_CMD_IPV6_SOCK_CLOSE, sizeof(fpp_socket6_close_cmd_t), &cmd);
 		if (ret == FPP_ERR_OK)
 		{
 			s->flags &= ~FPP_PROGRAMMED;
@@ -639,7 +639,7 @@ int __socket_open(FCI_CLIENT *fci_handle, struct socket *s)
 
 	cmm_print(DEBUG_INFO, "%s\n", __func__);
 
-	if ((s->type == CMMD_SOCKET_TYPE_LANWAN) || (s->type == CMMD_SOCKET_TYPE_L2TP))
+	if (s->type == CMMD_SOCKET_TYPE_LANWAN)
 	{
 		struct flow flow = {
 					.family = s->family,

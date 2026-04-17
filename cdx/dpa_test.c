@@ -39,26 +39,6 @@ enum flow_id
 };
 
 
-int mcast_grpd;
-
-int cdx_ioc_create_mc_group(unsigned long args)
-{
-	printk("%s::not implemented\n", __FUNCTION__);
-	return -1;
-}
-
-
-int cdx_ioc_add_member_to_group(unsigned long args)
-{
-	printk("%s::not implemented\n", __FUNCTION__);
-	return -1;
-}
-
-int cdx_ioc_add_mcast_table_entry(unsigned long args)
-{
-	return -1;
-}
-
 int cdx_ioc_dpa_connadd(unsigned long args)
 {
 	struct add_conn_info add_conn;
@@ -74,12 +54,12 @@ int cdx_ioc_dpa_connadd(unsigned long args)
 
 	if (copy_from_user(&add_conn, (void *)args,
 				sizeof(struct add_conn_info))) {
-		DPA_ERROR("%s::Read uspace args failed\n", __FUNCTION__);
+		DPA_ERROR("%s::Read uspace args failed\n", __func__);
 		return -EBUSY;
 	}
 	if (add_conn.num_conn == 0 || add_conn.num_conn > CDX_MAX_TEST_CONN) {
 		DPA_ERROR("%s::num_conn %u out of range\n",
-				__FUNCTION__, add_conn.num_conn);
+				__func__, add_conn.num_conn);
 		return -EINVAL;
 	}
 	retval = 0;
@@ -88,14 +68,14 @@ int cdx_ioc_dpa_connadd(unsigned long args)
 	conn_info = kcalloc(add_conn.num_conn, sizeof(*conn_info), GFP_KERNEL);
 	if (!conn_info) {
 		DPA_ERROR("%s::mem alloc for conn info failed\n",
-				__FUNCTION__);
+				__func__);
 		retval = -ENOMEM;
 		goto err_ret;
 	}
 	if (copy_from_user(conn_info, add_conn.conn_info,
 			   add_conn.num_conn * sizeof(*conn_info))) {
 		DPA_ERROR("%s::Read uspace args failed\n",
-				__FUNCTION__);
+				__func__);
 		retval = -EIO;
 		goto err_ret;
 	}
@@ -110,7 +90,7 @@ int cdx_ioc_dpa_connadd(unsigned long args)
 		goto err_ret;
 	}
 #ifdef DPA_TEST_DEBUG
-	DPA_INFO("%s::adding %d connections\n", __FUNCTION__, add_conn.num_conn);
+	DPA_INFO("%s::adding %d connections\n", __func__, add_conn.num_conn);
 #endif
 	for (ii = 0; ii < add_conn.num_conn; ii++) {
 		char port_name[EGRESS_PORTNAME_LEN];
@@ -152,14 +132,14 @@ int cdx_ioc_dpa_connadd(unsigned long args)
 				conn_info->fwd_flow.egress_port, EGRESS_PORTNAME_LEN);
 		if (retval == -EFAULT) {
 			DPA_ERROR("%s::unable to read fwd flow egress port\n",
-					__FUNCTION__);
+					__func__);
 			retval = -EIO;
 			goto err_ret;
 		}
 		onif_desc = get_onif_by_name(&port_name[0]); 
 		if (!onif_desc) {
 			DPA_ERROR("%s::unable to get onif for iface %s\n",
-					__FUNCTION__, &port_name[0]);
+					__func__, &port_name[0]);
 			retval = -EIO;
 			goto err_ret;
 		}
@@ -168,14 +148,14 @@ int cdx_ioc_dpa_connadd(unsigned long args)
 				conn_info->fwd_flow.ingress_port, EGRESS_PORTNAME_LEN);
 		if (retval == -EFAULT) {
 			DPA_ERROR("%s::unable to read fwd flow ingress port\n",
-					__FUNCTION__);
+					__func__);
 			retval = -EIO;
 			goto err_ret;
 		}
 		if(!rt_entry->input_itf)
 		{
 			DPA_ERROR("%s::NULL input interface \n",
-					__FUNCTION__);
+					__func__);
 			retval = -EIO;
 			goto err_ret;
 		}
@@ -212,14 +192,14 @@ int cdx_ioc_dpa_connadd(unsigned long args)
 				conn_info->rev_flow.egress_port, EGRESS_PORTNAME_LEN);
 		if (retval == -EFAULT) {
 			DPA_ERROR("%s::unable to read rev flow egress port\n",
-					__FUNCTION__);
+					__func__);
 			retval = -EIO;
 			goto err_ret;
 		}
 		onif_desc = get_onif_by_name(&port_name[0]); 
 		if (!onif_desc) {
 			DPA_ERROR("%s::unable to get onif for iface %s\n",
-					__FUNCTION__, &port_name[0]);
+					__func__, &port_name[0]);
 			retval = -EIO;
 			goto err_ret;
 		}
@@ -228,14 +208,14 @@ int cdx_ioc_dpa_connadd(unsigned long args)
 				conn_info->rev_flow.ingress_port, EGRESS_PORTNAME_LEN);
 		if (retval == -EFAULT) {
 			DPA_ERROR("%s::unable to read rev flow ingress port\n",
-					__FUNCTION__);
+					__func__);
 			retval = -EIO;
 			goto err_ret;
 		}
 		if(!rt_entry->input_itf)
 		{
 			DPA_ERROR("%s::NULL input interface \n",
-					__FUNCTION__);
+					__func__);
 			retval = -EIO;
 			goto err_ret;
 		}
@@ -245,22 +225,22 @@ int cdx_ioc_dpa_connadd(unsigned long args)
 		//insert forward entry
 		if (insert_entry_in_classif_table((ct_entry - 1))) {
 			DPA_ERROR("%s::failed to insert forward entry\n",
-					__FUNCTION__);
+					__func__);
 			retval = -EIO;
 			goto err_ret;
 		}
 #ifdef DPA_TEST_DEBUG
-		DPA_INFO("%s::inserted forward entry\n", __FUNCTION__);
+		DPA_INFO("%s::inserted forward entry\n", __func__);
 #endif
 		//insert reply/reverse entry
 		if (insert_entry_in_classif_table(ct_entry)) {
 			DPA_ERROR("%s::unable to repl entry\n",
-					__FUNCTION__);
+					__func__);
 			retval = -EIO;
 			goto err_ret;
 		}
 #ifdef DPA_TEST_DEBUG
-		DPA_INFO("%s::inserted reverse entry\n", __FUNCTION__);
+		DPA_INFO("%s::inserted reverse entry\n", __func__);
 #endif
 	}
 err_ret:

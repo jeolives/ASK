@@ -48,7 +48,7 @@ char ipsec_algo_name[128];
 *
 *
 ******************************************************************/
-int cmmKeyEnginetoIPSec(FCI_CLIENT *fci_handle, unsigned short fcode, unsigned short len, unsigned short *payload)
+int cmmKeyEnginetoIPSec(FCI_CLIENT *fci_handle, unsigned short fcode, unsigned short len, void *payload)
 {
 	int rc = 0;
 
@@ -70,7 +70,7 @@ int cmmKeyEnginetoIPSec(FCI_CLIENT *fci_handle, unsigned short fcode, unsigned s
 *
 *
 ******************************************************************/
-int cmmIPSectoKeyEngine(FCI_CLIENT *fci_handle, unsigned short fcode, unsigned short len, unsigned short *payload)
+int cmmIPSectoKeyEngine(FCI_CLIENT *fci_handle, unsigned short fcode, unsigned short len, void *payload)
 {
 	int rc = 0;
 
@@ -963,7 +963,7 @@ void cmmUpdateCtEntriesInFlowNoSAList(unsigned short sgid)
 		ctEntry =  container_of(entry, struct ctTable, flow_no_sa_list_node);
 		cmm_print(DEBUG_INFO,"%s CTentry %p\n",__func__,ctEntry);
 		cmm_print(DEBUG_INFO, "%s(%d) origfwdSA %p, origoutSA %p, repfwdSA %p, repOutSA %p\n",
-				__FUNCTION__,__LINE__,ctEntry->fEntryOrigFwdSA,ctEntry->fEntryOrigOutSA,
+				__func__,__LINE__,ctEntry->fEntryOrigFwdSA,ctEntry->fEntryOrigOutSA,
 					ctEntry->fEntryRepFwdSA,ctEntry->fEntryRepOutSA);
 		entry = list_next(entry);
 		if (cmmCheckIfCtEntryWithSGID(ctEntry, sgid))
@@ -1002,7 +1002,7 @@ int cmmUpdateFlows(struct SATable *pSAEntry)
 			ctEntry = container_of(entry, struct ctTable, list_by_sa[list_sa_index]);
 			cmm_print(DEBUG_INFO,"%s CTentry %p\n",__func__,ctEntry);
 			cmm_print(DEBUG_INFO, "%s(%d) origfwdSA %p, origoutSA %p, repfwdSA %p, repOutSA %p\n",
-				__FUNCTION__,__LINE__,ctEntry->fEntryOrigFwdSA,ctEntry->fEntryOrigOutSA,
+				__func__,__LINE__,ctEntry->fEntryOrigFwdSA,ctEntry->fEntryOrigOutSA,
 					ctEntry->fEntryRepFwdSA,ctEntry->fEntryRepOutSA);
 			entry = list_next(entry);
 			ctEntry->flags |= FPP_NEEDS_UPDATE;
@@ -1012,13 +1012,13 @@ int cmmUpdateFlows(struct SATable *pSAEntry)
 				if (!(pSAEntry->SAInfo.id.flags & NLKEY_SAFLAGS_INBOUND))
 				{
 					cmm_print(DEBUG_INFO,"%s(%d) SA entry %p, origoutsa %p making to null\n",
-						__FUNCTION__,__LINE__,pSAEntry,ctEntry->fEntryOrigOutSA);
+						__func__,__LINE__,pSAEntry,ctEntry->fEntryOrigOutSA);
 					ctEntry->fEntryOrigOutSA = NULL;
 				}
 				else
 				{
 					cmm_print(DEBUG_INFO,"%s(%d) SA entry %p, origfwdsa %p making to null\n",
-						__FUNCTION__,__LINE__,pSAEntry,ctEntry->fEntryOrigFwdSA);
+						__func__,__LINE__,pSAEntry,ctEntry->fEntryOrigFwdSA);
 					ctEntry->fEntryOrigFwdSA = NULL;
 				}
 			}
@@ -1027,13 +1027,13 @@ int cmmUpdateFlows(struct SATable *pSAEntry)
 				if (!(pSAEntry->SAInfo.id.flags & NLKEY_SAFLAGS_INBOUND))
 				{
 					cmm_print(DEBUG_INFO,"%s(%d) SA entry %p, repoutsa %p making to null\n",
-						__FUNCTION__,__LINE__,pSAEntry,ctEntry->fEntryRepOutSA);
+						__func__,__LINE__,pSAEntry,ctEntry->fEntryRepOutSA);
 					ctEntry->fEntryRepOutSA = NULL;
 				}
 				else
 				{
 					cmm_print(DEBUG_INFO,"%s(%d) SA entry %p, Repfwdsa %p making to null\n",
-						__FUNCTION__,__LINE__,pSAEntry,ctEntry->fEntryRepFwdSA);
+						__func__,__LINE__,pSAEntry,ctEntry->fEntryRepFwdSA);
 					ctEntry->fEntryRepFwdSA = NULL;
 				}
 			}
@@ -1057,13 +1057,13 @@ static void cmmReplaceXfrmHandle(unsigned short  *xfrm_handle, unsigned short ol
 		{
 			if (xfrm_handle[ii] == old_val)
 			{
-				cmm_print(DEBUG_INFO,"%s(%d) old val 0x%x, new val 0x%x\n",__FUNCTION__,__LINE__, old_val,new_val);
+				cmm_print(DEBUG_INFO,"%s(%d) old val 0x%x, new val 0x%x\n",__func__,__LINE__, old_val,new_val);
 				xfrm_handle[ii] = new_val;
 				return;
 			}
 		}
 		cmm_print(DEBUG_INFO,"%s(%d) xfrm originator: handles 0x%x, 0x%x, 0x%x, 0x%x\n",
-					__FUNCTION__,__LINE__, xfrm_handle[0],xfrm_handle[1],
+					__func__,__LINE__, xfrm_handle[0],xfrm_handle[1],
 					xfrm_handle[2],xfrm_handle[3]);
 	}
 	return;
@@ -1081,7 +1081,7 @@ int cmmUpdateFlowsWithNewSAInfo(struct SATable *pNewSAEntry,unsigned short old_x
 
 	/* Find SA with old_xfrm_handle */
 	cmm_print(DEBUG_INFO,"%s(%d) old_xfrm_handle 0x%x, new handle 0x%x\n",
-		__FUNCTION__,__LINE__,old_xfrm_handle,pNewSAEntry->SAInfo.sagd);
+		__func__,__LINE__,old_xfrm_handle,pNewSAEntry->SAInfo.sagd);
 	pSAEntry = cmmSAFind(old_xfrm_handle);
 	if (!pSAEntry)
 	{
@@ -1667,7 +1667,7 @@ void cmmDPDIPsecSAUpdate(struct cmm_ct *ctx)
 	double dt;
 	time_t now;
 	netkey_sa_update_cmd_t msg;
-	unsigned short *payload;
+	void *payload;
 	fpp_stat_ipsec_status_cmd_t ipsecStatusCmd;
 	uint64_t total_bytes_transmitted_0={0};
 	uint64_t total_bytes_transmitted_1={0};
@@ -1706,7 +1706,7 @@ void cmmDPDIPsecSAUpdate(struct cmm_ct *ctx)
 		ipsecStatusCmd.iQueryTimerVal = iQueryTimerVal;
 #endif
 		/* Send CMD_STAT_IPSEC_STATUS command */
-		ret = fci_write(ctx->fci_handle, FPP_CMD_STAT_IPSEC_STATUS, sizeof(ipsecStatusCmd), (unsigned short *) &ipsecStatusCmd);
+		ret = fci_write(ctx->fci_handle, FPP_CMD_STAT_IPSEC_STATUS, sizeof(ipsecStatusCmd), &ipsecStatusCmd);
 
 		if ((ret != FPP_ERR_OK) || (ret < 0))
 		{
@@ -1750,7 +1750,7 @@ void cmmDPDIPsecSAUpdate(struct cmm_ct *ctx)
 
 					fcode = NETKEY_CMD_SA_INFO_UPDATE;
 					len = sizeof(msg);
-					payload = (unsigned short *)&msg;
+					payload = &msg;
 					cmmIPSectoKeyEngine(ctx->fci_key_handle, fcode, len, payload);
 				}
 #if defined (LS1043)

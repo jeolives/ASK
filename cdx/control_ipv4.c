@@ -225,7 +225,7 @@ static void ct_update_one(PCtEntry pEntry)
 	int rc, i;
 	PSAEntry sa;
 
-	//DPA_INFO("%s(%d) \n",__FUNCTION__,__LINE__);
+	//DPA_INFO("%s(%d) \n",__func__,__LINE__);
 	//insert entry
 	if (!(pEntry->status & CONNTRACK_HWSET)){
 		if(is_CT_COMPLETE(pEntry))
@@ -272,7 +272,7 @@ static void ct_update_one(PCtEntry pEntry)
 					{
 #ifdef IPV4_CONTROL_DEBUG
 						printk("%s(%d) enque fqid %x, SA tosec fqid %x\n",
-								__FUNCTION__,__LINE__,be32_to_cpu(param->fqid),
+								__func__,__LINE__,be32_to_cpu(param->fqid),
 								sa->pSec_sa_context->to_sec_fqid);
 #endif
 						param->fqid = cpu_to_be32(sa->pSec_sa_context->to_sec_fqid);
@@ -288,7 +288,7 @@ static void ct_update_one(PCtEntry pEntry)
 			if (orig_mtu != new_mtu)
 			{
 				param->mtu = cpu_to_be16(new_mtu);
-				//DPA_INFO("%s(%d) orig_mtu %d, new_mtu %d \n",__FUNCTION__,__LINE__, orig_mtu, param->mtu);
+				//DPA_INFO("%s(%d) orig_mtu %d, new_mtu %d \n",__func__,__LINE__, orig_mtu, param->mtu);
 			}
 		}
 	}
@@ -1317,7 +1317,7 @@ static U16 M_ipv4_cmdproc(U16 cmd_code, U16 cmd_len, U16 *pcmd)
 
 
 		case CMD_IPV4_SOCK_OPEN:
-			DPRINT("%s(%d) \n",__FUNCTION__,__LINE__);
+			DPRINT("%s(%d) \n",__func__,__LINE__);
 			rc = SOCKET4_HandleIP_Socket_Open(pcmd, cmd_len);
 			break;
 

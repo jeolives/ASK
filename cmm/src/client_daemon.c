@@ -375,18 +375,6 @@ int cmmSendToDaemon(daemon_handle_t handle, unsigned short commandCode, void * d
 	if (dataToSend)
 		memcpy(msg.buffer, dataToSend, dataSize);
 
-#if 0
-	if ((globalConf.debug_level & DEBUG_INFO) || (globalConf.log_level & DEBUG_INFO))
-	{
-		int rcvDataSize;
-		cmm_print(DEBUG_INFO, "commandCode: (%04x) \n", (unsigned int)msg.mtype);
-		for(rcvDataSize = 0; rcvDataSize < dataSize; rcvDataSize+=2)
-		{
-			cmm_print(DEBUG_INFO, "%02x%02x \n", msg.buffer[rcvDataSize + 1], msg.buffer[rcvDataSize]);
-		}
-		cmm_print(DEBUG_INFO, "\n");
-	}
-#endif
 
 	if (msgsnd(queueIdTx, &msg, dataSize, 0) < 0)
 	{
@@ -402,18 +390,6 @@ int cmmSendToDaemon(daemon_handle_t handle, unsigned short commandCode, void * d
 		return -1;
 	}
 
-#if 0
-	if ((globalConf.debug_level & DEBUG_INFO) || (globalConf.log_level & DEBUG_INFO))
-	{
-		int rcvDataSize;
-		cmm_print(DEBUG_INFO, "commandAck:  (%04x) \n", (unsigned int)msg.mtype);
-		for(rcvDataSize = 0; rcvDataSize < rcvBytes ; rcvDataSize += 2)
-		{
-			cmm_print(DEBUG_INFO, "%04x \n", ((unsigned short *)msg.buffer)[rcvDataSize]);
-		}
-		cmm_print(DEBUG_INFO, "\n");
-	}
-#endif
 
 	if ((dataToRcv) && (rcvBytes))
 		memcpy(dataToRcv, msg.buffer, rcvBytes);
@@ -1299,10 +1275,6 @@ static int cmmCommandParse(struct cmm_daemon *ctx, int function_code, u_int8_t *
 	case CMMD_CMD_VOICE_FILE_UNLOAD:
 		return voice_file_unload(ctx->fci_handle, (cmmd_voice_file_unload_cmd_t *)cmd_buf, res_buf, res_len);
 
-	case CMMD_CMD_L2TP_SESSION_CREATE:
-	case CMMD_CMD_L2TP_SESSION_DESTROY:
-		return l2tp_daemon(ctx->fci_handle,function_code, (cmmd_l2tp_session_t *) cmd_buf, cmd_len, res_buf, res_len);
-
 	//Bridge commands
 	case FPP_CMD_RX_L2BRIDGE_ENABLE:
 	case FPP_CMD_RX_L2BRIDGE_ADD:
@@ -1457,7 +1429,7 @@ static int cmmCommandParse(struct cmm_daemon *ctx, int function_code, u_int8_t *
 
 FCI_CMD:
 	//Sending message to FPP
-	return fci_cmd(ctx->fci_handle, function_code, (unsigned short *)cmd_buf, cmd_len, (unsigned short *)res_buf, res_len);
+	return fci_cmd(ctx->fci_handle, function_code, cmd_buf, cmd_len, (unsigned short *)res_buf, res_len);
 }
 
 

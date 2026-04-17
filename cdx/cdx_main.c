@@ -11,11 +11,22 @@
 //uncomment to start dpa_app from cdx module
 #define START_DPA_APP 1
 
+/*
+ * Minimum FMAN microcode package the ASK data path requires.
+ * Matches ASK_UCODE_PACKAGE_NUMBER in sdk_fman fm_common.h.
+ */
+#define CDX_MIN_FW_PACKAGE 209
+
 #define DEFINE_GLOBALS
 #include "portdefs.h"
 #include "cdx.h"
 #include "cdx_cmdhandler.h"
 #include "dpa_ipsec.h"
+
+#include <linux/of.h>
+#include <linux/of_platform.h>
+#include <linux/platform_device.h>
+#include "lnxwrp_fsl_fman.h"
 
 static uint32_t init_level;
 static cdx_deinit_func deinit_fn[MAX_CDX_INIT_FUNCTIONS];
@@ -23,7 +34,7 @@ static cdx_deinit_func deinit_fn[MAX_CDX_INIT_FUNCTIONS];
 void register_cdx_deinit_func(cdx_deinit_func func)
 {
 	if (init_level == MAX_CDX_INIT_FUNCTIONS) {
-		printk("%s::cant register deinit function, increase MAX_CDX_INIT_FUNCTIONS\n", __FUNCTION__);
+		printk("%s::cant register deinit function, increase MAX_CDX_INIT_FUNCTIONS\n", __func__);
 		return;
 	}
 	deinit_fn[init_level] = func;
@@ -92,7 +103,7 @@ static int start_dpa_app(void)
 	argv[0] = modprobe_path;
 	argv[1] = NULL;
 	retval = 0;
-	printk("%s::calling dpa_app argv %p\n", __FUNCTION__, argv);
+	printk("%s::calling dpa_app argv %p\n", __func__, argv);
 	info = call_usermodehelper_setup(modprobe_path, argv, envp, GFP_KERNEL,
 			NULL, cdx_free_modprobe_argv, NULL);
 	if (info) {
@@ -122,7 +133,7 @@ static int cdx_init_device(void)
 	cdx_info->dev.release = cdx_dev_release;
 	rc = device_register(&cdx_info->dev);
 	if (rc != 0)
-		printk("%s::device_register failed\n", __FUNCTION__);
+		printk("%s::device_register failed\n", __func__);
 	else
 		register_cdx_deinit_func(cdx_deinit_device);
 	return rc;
@@ -143,12 +154,57 @@ static void cdx_module_deinit(void)
 	return;
 }
 
+static int cdx_check_fman_firmware(void)
+{
+	struct device_node *np;
+	struct platform_device *pdev;
+	struct fm *fm;
+	u16 pkg = 0;
+	u8 maj = 0, min = 0;
+	int rc;
+
+	np = of_find_compatible_node(NULL, NULL, "fsl,fman");
+	if (!np) {
+		pr_err("cdx: fsl,fman device-tree node not found\n");
+		return -ENODEV;
+	}
+	pdev = of_find_device_by_node(np);
+	of_node_put(np);
+	if (!pdev) {
+		pr_err("cdx: fsl,fman platform device not ready\n");
+		return -EPROBE_DEFER;
+	}
+
+	fm = fm_bind(&pdev->dev);
+	rc = fm_get_fw_rev(fm, &pkg, &maj, &min);
+	fm_unbind(fm);
+	if (rc) {
+		pr_err("cdx: cannot read FMAN firmware revision (%d)\n", rc);
+		return rc;
+	}
+
+	if (pkg < CDX_MIN_FW_PACKAGE) {
+		pr_err("cdx: FMAN firmware %u.%u.%u lacks ASK support "
+		       "(need package >= %u). Load the ASK microcode in U-Boot.\n",
+		       pkg, maj, min, CDX_MIN_FW_PACKAGE);
+		return -ENODEV;
+	}
+
+	pr_info("cdx: FMAN firmware %u.%u.%u - ASK supported\n",
+		pkg, maj, min);
+	return 0;
+}
+
 static int __init cdx_module_init(void)
 {
 	int rc = 0;
 	int ii;
 
 	printk(KERN_INFO "%s\n", __func__);
+
+	rc = cdx_check_fman_firmware();
+	if (rc)
+		return rc;
 
 	for(ii = 0; ii < MAX_CDX_INIT_FUNCTIONS; ii++)
 		deinit_fn[ii] = NULL;
@@ -162,28 +218,27 @@ static int __init cdx_module_init(void)
 	}
 	rc = cdx_init_device();
 	if (rc != 0) {
-		printk("%s::cdx_init_device failed\n", __FUNCTION__);
+		printk("%s::cdx_init_device failed\n", __func__);
 		goto exit;
 	}
 	rc = cdx_ctrl_init(cdx_info);
 	if (rc != 0) {
-		printk("%s::cdx_ctrl_init failed\n", __FUNCTION__);
+		printk("%s::cdx_ctrl_init failed\n", __func__);
 		goto exit;
 	}
 	rc = devman_init_linux_stats();
 	if (rc != 0)  {
-		printk("%s::devman_init call to register for linux stats failed\n", __FUNCTION__);
+		printk("%s::devman_init call to register for linux stats failed\n", __func__);
 		goto exit;
 	}
 	rc = cdx_driver_init();
 	if (rc != 0)  {
-		printk("%s::cdx_driver_init failed\n", __FUNCTION__);
+		printk("%s::cdx_driver_init failed\n", __func__);
 		goto exit;
 	}
 	/* creating a /proc/fqid_stats dir for listing fqids created by cdx module */
 	cdx_init_fqid_procfs();
 #ifdef START_DPA_APP
-	rc = start_dpa_app();
 	if (rc != 0) {
 		/* Non-fatal: dpa_app can be launched manually later to finish
 		 * PCD programming. Failing the module load here would leave the
@@ -191,16 +246,16 @@ static int __init cdx_module_init(void)
 		 * recovery from a transient dpa_app failure (e.g. rootfs not
 		 * mounted yet when modprobe runs). */
 		printk("%s::start_dpa_app failed rc %d (continuing, run dpa_app manually)\n",
-		       __FUNCTION__, rc);
+		       __func__, rc);
 		rc = 0;
 	} else {
-		printk("%s::start_dpa_app successful\n", __FUNCTION__);
+		printk("%s::start_dpa_app successful\n", __func__);
 	}
 #endif
 #ifdef CFG_WIFI_OFFLOAD
 	rc = dpaa_vwd_init();
 	if (rc != 0)  {
-		printk("%s::vwd_driver_init failed\n", __FUNCTION__);
+		printk("%s::vwd_driver_init failed\n", __func__);
 		goto exit;
 	}
 #endif
@@ -211,31 +266,31 @@ static int __init cdx_module_init(void)
 		 * above was skipped (non-fatal failure) we would also fail here,
 		 * but the cdx module is still useful for the other pieces that did
 		 * initialize. */
-		printk("%s::cdx_init_frag_module failed (continuing)\n", __FUNCTION__);
+		printk("%s::cdx_init_frag_module failed (continuing)\n", __func__);
 	}
 
 #ifdef DPA_IPSEC_OFFLOAD
 	if (cdx_dpa_ipsec_init()) {
-		printk("%s::dpa_ipsec start failed\n", __FUNCTION__);
+		printk("%s::dpa_ipsec start failed\n", __func__);
 		goto exit;
 	}
 
 	if (cdx_init_scatter_gather_bpool()) {
-		printk("%s::cdx_init_scatter_gather_bpool failed\n",__FUNCTION__);
+		printk("%s::cdx_init_scatter_gather_bpool failed\n",__func__);
 		rc = -ENOMEM;
 		goto exit;
 	}
 	if (cdx_init_skb_2bfreed_bpool()) {
-		printk("%s(%d) : cdx_init_skb_2bfreed_bpool failed\n", __FUNCTION__,__LINE__);
+		printk("%s(%d) : cdx_init_skb_2bfreed_bpool failed\n", __func__,__LINE__);
 		rc = -ENOMEM;
 		goto exit;
 	}
 #endif
 
 #ifdef CDX_IP_REASSEMBLY
-	printk("%s::calling cdx_init_ip_reassembly\n", __FUNCTION__);
+	printk("%s::calling cdx_init_ip_reassembly\n", __func__);
 	if (cdx_init_ip_reassembly()) {
-		printk("%s::cdx_init_ip_reassembly failed\n", __FUNCTION__);
+		printk("%s::cdx_init_ip_reassembly failed\n", __func__);
 		rc = -EIO;
 		goto exit;
 	}

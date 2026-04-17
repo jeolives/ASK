@@ -8,7 +8,6 @@
  *
  */
 
-#include <linux/version.h>
 #include <linux/kobject.h>
 #include <linux/module.h>
 #include <linux/kernel.h>
@@ -763,7 +762,7 @@ static inline void release_skb_in_sglist(struct qm_sg_entry *sg_entry)
 	//release the skb attached to the sg list
 	skb = get_skb_from_sg_list(sg_entry);
 	if (skb) {
-		//printk("%s::freeing skb %p\n", __FUNCTION__, skb);
+		//printk("%s::freeing skb %p\n", __func__, skb);
 		dev_kfree_skb_any(skb);
 	}
 }
@@ -786,8 +785,8 @@ static int __hot vwd_skb_to_contig_fd(struct dpaa_vwd_priv_s *priv,
 
 	dma_dir = DMA_TO_DEVICE;
 
-	//DPAWIFI_INFO("%s::headroom :%d - %d - %d \n", __FUNCTION__, priv->tx_headroom, skb_headroom(skb), skb->len);
-	//DPAWIFI_INFO("%s::skb :%p - %p - %p\n", __FUNCTION__, skb, skb->data, skb->head);
+	//DPAWIFI_INFO("%s::headroom :%d - %d - %d \n", __func__, priv->tx_headroom, skb_headroom(skb), skb->len);
+	//DPAWIFI_INFO("%s::skb :%p - %p - %p\n", __func__, skb, skb->data, skb->head);
 
 	DPA_WRITE_SKB_PTR(skb, skbh, buffer_start, 0);
 
@@ -802,7 +801,7 @@ static int __hot vwd_skb_to_contig_fd(struct dpaa_vwd_priv_s *priv,
 	addr = dma_map_single(dpa_bp->dev, skbh,
 			skb_tail_pointer(skb) - buffer_start, dma_dir);
 	if (unlikely(dma_mapping_error(dpa_bp->dev, addr))) {
-		DPAWIFI_ERROR("%s::DMA MAPPING ERROR :\n", __FUNCTION__);
+		DPAWIFI_ERROR("%s::DMA MAPPING ERROR :\n", __func__);
 		return -EINVAL;
 	}
 
@@ -964,7 +963,7 @@ static int __hot vwd_skb_to_sg_fd(struct dpaa_vwd_priv_s *priv,
 	struct vap_desc_s *vap = (struct vap_desc_s *)skb->dev->wifi_offload_dev;
 
 	if (bman_acquire(priv->tx_bp->pool, &bmb, 1, 0) != 1) {
-		DPAWIFI_ERROR("%s::dropped packet, pool empty\n", __FUNCTION__);
+		DPAWIFI_ERROR("%s::dropped packet, pool empty\n", __func__);
 		if (vap) {
 			INCR_PER_CPU_STAT(vap->vap_stats, pkts_tx_dropped);
 		}
@@ -1021,7 +1020,7 @@ static struct sk_buff* sec_frag_fd_to_vwd_skb(const struct qm_dqrr_entry *dq, st
 
 	skb = dev_alloc_skb(len + dq->fd.offset + 32);
 	if (!skb) {
-		DPAWIFI_ERROR("%s::skb alloc failed\n", __FUNCTION__);
+		DPAWIFI_ERROR("%s::skb alloc failed\n", __func__);
 		return NULL;
 	}
 	skb_reserve(skb, dq->fd.offset);
@@ -1053,7 +1052,7 @@ static struct sk_buff *__hot contig_fd_to_vwd_skb(const struct dpa_priv_s *priv,
 
 	dpa_bp = dpa_bpid2pool(fd->bpid);
 	if (!dpa_bp) {
-		DPAWIFI_ERROR("%s::invalid buffer pool id %d\n", __FUNCTION__, fd->bpid);
+		DPAWIFI_ERROR("%s::invalid buffer pool id %d\n", __func__, fd->bpid);
 		return NULL;
 	}
 	//get phys addressa and virt address
@@ -1069,7 +1068,7 @@ static struct sk_buff *__hot contig_fd_to_vwd_skb(const struct dpa_priv_s *priv,
 
 #ifdef DPA_WIFI_DEBUG
 	if (fd_off > priv->rx_headroom) {
-		DPAWIFI_ERROR("%s:: no headroom %d:%d\n", __FUNCTION__, (int)fd_off, priv->rx_headroom);
+		DPAWIFI_ERROR("%s:: no headroom %d:%d\n", __func__, (int)fd_off, priv->rx_headroom);
 		//return NULL;
 	}	
 #endif
@@ -1099,8 +1098,8 @@ static struct sk_buff *__hot contig_fd_to_vwd_skb(const struct dpa_priv_s *priv,
 	skb_put(skb, dpa_fd_length(fd));
 #ifdef DPA_WIFI_DEBUG
 	DPAWIFI_INFO("%s::skb:%p head %p data %p headroom %d\n", 
-			__FUNCTION__, skb, skb->head, skb->data, skb_headroom(skb));
-	DPAWIFI_INFO("%s::skb:len %d tail %d end %d\n", __FUNCTION__, skb->len, skb->tail, skb->end);
+			__func__, skb, skb->head, skb->data, skb_headroom(skb));
+	DPAWIFI_INFO("%s::skb:len %d tail %d end %d\n", __func__, skb->len, skb->tail, skb->end);
 #endif
 	return skb;
 
@@ -1260,21 +1259,21 @@ static int dpaa_vwd_send_packet(struct dpaa_vwd_priv_s *priv ,void *vap_handle, 
 	if (unlikely(err < 0))
 	{
 #ifdef DPA_SG_SUPPORT
-		DPAWIFI_ERROR("%s:: custom_vwd_skb_to_sg_fd failed\n", __FUNCTION__);
+		DPAWIFI_ERROR("%s:: custom_vwd_skb_to_sg_fd failed\n", __func__);
 #else
-		DPAWIFI_ERROR("%s::vwd_skb_to_contig_fd failed\n", __FUNCTION__);
+		DPAWIFI_ERROR("%s::vwd_skb_to_contig_fd failed\n", __func__);
 #endif
 		goto skb_to_fd_failed;
 	}
 #ifdef DPA_WIFI_DEBUG
-	DPAWIFI_INFO("%s::fqid %d(%x) cmd %08x, physaddr %llx\n", __FUNCTION__, 
+	DPAWIFI_INFO("%s::fqid %d(%x) cmd %08x, physaddr %llx\n", __func__, 
 			vap_dev->wlan_fq_to_fman->fqid,
 			vap_dev->wlan_fq_to_fman->fqid, fd.cmd, (uint64_t)fd.addr);
 #endif
 	for (i = 0; i < 100000; i++) {
 		err = qman_enqueue(&vap_dev->wlan_fq_to_fman->fq_base, &fd, 0);
 		if (err != -EBUSY) {
-			//DPAWIFI_ERROR("%s:%d :qman_enqueue failed\n", __FUNCTION__, __LINE__);
+			//DPAWIFI_ERROR("%s:%d :qman_enqueue failed\n", __func__, __LINE__);
 			break;
 
 		}
@@ -1283,7 +1282,7 @@ static int dpaa_vwd_send_packet(struct dpaa_vwd_priv_s *priv ,void *vap_handle, 
 
 	//if (qman_enqueue(&vap_dev->wlan_fq_to_fman->fq_base, &fd, 0)) {
 	if (err < 0) {
-		DPAWIFI_ERROR("%s:%d :qman_enqueue failed\n", __FUNCTION__, __LINE__);
+		DPAWIFI_ERROR("%s:%d :qman_enqueue failed\n", __func__, __LINE__);
 		goto qman_enq_failed;
 	}
 	num_tx_sent++;
@@ -1321,8 +1320,8 @@ static int process_rx_exception_pkt(struct qman_portal *portal, struct qman_fq *
 	struct vap_desc_s *vap;
 
 #ifdef DPA_WIFI_DEBUG
-	DPAWIFI_INFO("%s::exception packet\n", __FUNCTION__);
-	DPAWIFI_INFO("%s::fqid %x(%d), bpid %d, len %d, offset %d addr %llx status %08x\n", __FUNCTION__,
+	DPAWIFI_INFO("%s::exception packet\n", __func__);
+	DPAWIFI_INFO("%s::fqid %x(%d), bpid %d, len %d, offset %d addr %llx status %08x\n", __func__,
 			dq->fqid, dq->fqid, dq->fd.bpid, dq->fd.length20,
 			dq->fd.offset,  (uint64_t)dq->fd.addr, dq->fd.status);
 #endif
@@ -1342,7 +1341,7 @@ static int process_rx_exception_pkt(struct qman_portal *portal, struct qman_fq *
 
 		skb = dev_alloc_skb(len + 2 + priv->eth_priv->tx_headroom);
 		if (!skb) {
-			DPAWIFI_ERROR("%s::skb alloc failed\n", __FUNCTION__);
+			DPAWIFI_ERROR("%s::skb alloc failed\n", __func__);
 			goto rel_fd;
 		}
 
@@ -1380,7 +1379,7 @@ static int process_rx_exception_pkt(struct qman_portal *portal, struct qman_fq *
 
 	if (!skb) {
 		INCR_PER_CPU_STAT(priv->vwd_global_stats, pkts_slow_fail);
-		DPAWIFI_ERROR("%s::unable to get skb pointer for fd\n", __FUNCTION__);
+		DPAWIFI_ERROR("%s::unable to get skb pointer for fd\n", __func__);
 		goto rel_fd;
 	}
 
@@ -1388,7 +1387,7 @@ static int process_rx_exception_pkt(struct qman_portal *portal, struct qman_fq *
 	vap = (struct vap_desc_s *)skb->dev->wifi_offload_dev;
 	if (!vap)
 	{
-		DPAWIFI_ERROR("%s(%d) vap entry is NULL\n",__FUNCTION__,__LINE__);
+		DPAWIFI_ERROR("%s(%d) vap entry is NULL\n",__func__,__LINE__);
 		dev_kfree_skb(skb);
 		goto rel_fd;
 	}
@@ -1398,7 +1397,7 @@ static int process_rx_exception_pkt(struct qman_portal *portal, struct qman_fq *
 		skb->expt_pkt = 1;
 		if (netif_receive_skb(skb) == NET_RX_DROP) {
 #ifdef DPA_WIFI_DEBUG
-			DPAWIFI_ERROR("%s::netif_receive_skb:NET_RX_DROP\n", __FUNCTION__);
+			DPAWIFI_ERROR("%s::netif_receive_skb:NET_RX_DROP\n", __func__);
 #endif
 			INCR_PER_CPU_STAT(vap->vap_stats, pkts_slow_path_drop);
 		}
@@ -1412,7 +1411,7 @@ static int process_rx_exception_pkt(struct qman_portal *portal, struct qman_fq *
 		skb->expt_pkt = 1;
 		if (netif_rx(skb) == NET_RX_DROP) {
 #ifdef DPA_WIFI_DEBUG
-			DPAWIFI_ERROR("%s::netif_receive_skb:NET_RX_DROP\n", __FUNCTION__);
+			DPAWIFI_ERROR("%s::netif_receive_skb:NET_RX_DROP\n", __func__);
 #endif
 			INCR_PER_CPU_STAT(vap->vap_stats, pkts_slow_path_drop);
 		}
@@ -1421,7 +1420,7 @@ static int process_rx_exception_pkt(struct qman_portal *portal, struct qman_fq *
 		skb->expt_pkt = 1;
 		if (netif_receive_skb(skb) == NET_RX_DROP) {
 #ifdef DPA_WIFI_DEBUG
-			DPAWIFI_ERROR("%s::netif_receive_skb:NET_RX_DROP\n", __FUNCTION__);
+			DPAWIFI_ERROR("%s::netif_receive_skb:NET_RX_DROP\n", __func__);
 #endif
 			INCR_PER_CPU_STAT(vap->vap_stats, pkts_slow_path_drop);
 		}
@@ -1452,13 +1451,13 @@ static int add_device_tx_bpool(struct dpaa_vwd_priv_s  *vwd)
 	bp = kzalloc(sizeof(struct dpa_bp), GFP_KERNEL);
 	if (unlikely(bp == NULL)) {
 		DPAWIFI_ERROR("%s::failed to allocate mem for bman pool for dev %s\n",
-				__FUNCTION__,vwd->name);
+				__func__,vwd->name);
 		return -1;
 	}
 	bp->size = VAPDEV_BUFSIZE;
 	bp->config_count = VAPDEV_BUFCOUNT;
 	if (get_phys_port_poolinfo_bysize(VAPDEV_BUFSIZE, &vwd->parent_pool_info)) {
-		DPAWIFI_ERROR("%s::failed to locate eth bman pool for dev %s\n", __FUNCTION__, vwd->name);
+		DPAWIFI_ERROR("%s::failed to locate eth bman pool for dev %s\n", __func__, vwd->name);
 		bman_free_pool(bp->pool);
 		kfree(bp);
 		return -1;
@@ -1470,7 +1469,7 @@ static int add_device_tx_bpool(struct dpaa_vwd_priv_s  *vwd)
 	bp->dev = bp_parent->dev;
 
 	if (dpa_bp_alloc(bp, bp->dev)) {
-		DPAWIFI_ERROR("%s::dpa_bp_alloc failed for dev %s\n", __FUNCTION__,vwd->name);
+		DPAWIFI_ERROR("%s::dpa_bp_alloc failed for dev %s\n", __func__,vwd->name);
 		kfree(bp);
 		return -1;
 	}
@@ -1482,7 +1481,7 @@ static int add_device_tx_bpool(struct dpaa_vwd_priv_s  *vwd)
 			CONFIG_FSL_DPAA_ETH_REFILL_THRESHOLD);
 		if (ret < 0)
 		{
-			DPAWIFI_ERROR("%s:: Error returned for dpaa_eth_refill_bpools %d\n", __FUNCTION__,ret);
+			DPAWIFI_ERROR("%s:: Error returned for dpaa_eth_refill_bpools %d\n", __func__,ret);
 			break;
 		}
 
@@ -1490,7 +1489,7 @@ static int add_device_tx_bpool(struct dpaa_vwd_priv_s  *vwd)
 	}
 	bp->config_count = buffer_count;
 
-	DPAWIFI_INFO("%s::TX buffers_allocated %d - %d\n", __FUNCTION__,bp->config_count, bp->bpid);
+	DPAWIFI_INFO("%s::TX buffers_allocated %d - %d\n", __func__,bp->config_count, bp->bpid);
 	return 0;
 
 }
@@ -1605,19 +1604,19 @@ static int process_vap_rx_fwd_pkt(struct qman_portal *portal, struct qman_fq *fq
 	{
 		if (printk_ratelimit())
 			DPAWIFI_ERROR("%s::vap interface is down, releasing the frame from fq %u.\n ", 
-							__FUNCTION__, fq->fqid);
+							__func__, fq->fqid);
 		INCR_PER_CPU_STAT(priv->vwd_global_stats, pkts_dev_down_drop);
 		goto rel_fd;
 	}
 #ifdef DPA_WIFI_DEBUG
-	DPAWIFI_INFO("%s::forwarding packet\n", __FUNCTION__);
-	DPAWIFI_INFO("%s::fqid %x(%d), bpid %d, len %d, offset %d netdev %p dev %s addr %llx\n", __FUNCTION__,
+	DPAWIFI_INFO("%s::forwarding packet\n", __func__);
+	DPAWIFI_INFO("%s::fqid %x(%d), bpid %d, len %d, offset %d netdev %p dev %s addr %llx\n", __func__,
 			dq->fqid, dq->fqid, dq->fd.bpid, dq->fd.length20,
 			dq->fd.offset, net_dev, net_dev->name, (uint64_t)dq->fd.addr);
 #endif
 	/* The only FD types that we may receive are contig and S/G */
 	if (dq->fd.format != qm_fd_contig) {
-		DPAWIFI_ERROR("%s::TBD discarding SG frame :%d\n ", __FUNCTION__,dq->fd.format);
+		DPAWIFI_ERROR("%s::TBD discarding SG frame :%d\n ", __func__,dq->fd.format);
 		INCR_PER_CPU_STAT(priv->vwd_global_stats, pkts_slow_fail);
 		goto rel_fd;
 	}
@@ -1654,7 +1653,7 @@ static int process_vap_rx_fwd_pkt(struct qman_portal *portal, struct qman_fq *fq
 
 	if (!skb) {
 		INCR_PER_CPU_STAT(priv->vwd_global_stats, pkts_slow_fail);
-		DPAWIFI_ERROR("%s::contig_fd_to_vwd_skb failed\n", __FUNCTION__);
+		DPAWIFI_ERROR("%s::contig_fd_to_vwd_skb failed\n", __func__);
 		goto rel_fd;
 	}
 
@@ -1666,7 +1665,7 @@ process_skb:
 	if (!vap)
 	{
 		INCR_PER_CPU_STAT(priv->vwd_global_stats, pkts_slow_fail);
-		DPAWIFI_ERROR("%s(%d) vap entry is NULL\n",__FUNCTION__,__LINE__);
+		DPAWIFI_ERROR("%s(%d) vap entry is NULL\n",__func__,__LINE__);
 		dev_kfree_skb(skb);
 		return 0;
 	}
@@ -1745,11 +1744,11 @@ static int vwd_init_pcd_fqs(struct dpaa_vwd_priv_s *priv)
 		num_portals++;
 	}
 	if (!num_portals) {
-		DPAWIFI_ERROR("%s::unable to get affined portal info\n", __FUNCTION__);
+		DPAWIFI_ERROR("%s::unable to get affined portal info\n", __func__);
 		return -1;
 	}
 #ifdef DPA_WIFI_DEBUG
-	DPAWIFI_INFO("%s::num_portals %d ::", __FUNCTION__, num_portals);
+	DPAWIFI_INFO("%s::num_portals %d ::", __func__, num_portals);
 	for (ii = 0; ii < num_portals; ii++)
 		DPAWIFI_INFO("%d ", portal_channel[ii]);
 	DPAWIFI_INFO("\n");
@@ -1757,7 +1756,7 @@ static int vwd_init_pcd_fqs(struct dpaa_vwd_priv_s *priv)
 
 	if (get_ofport_max_dist(FMAN_IDX, priv->oh_port_handle, &max_dist) < 0)
 	{
-		DPAWIFI_ERROR("%s::unable to get distributions for oh port\n", __FUNCTION__);
+		DPAWIFI_ERROR("%s::unable to get distributions for oh port\n", __func__);
 		return -1;
 	}
 
@@ -1766,19 +1765,19 @@ static int vwd_init_pcd_fqs(struct dpaa_vwd_priv_s *priv)
 
 		if (get_oh_port_pcd_fqinfo(FMAN_IDX, priv->oh_port_handle, 
 					jj, &fqbase, &fqcount)) {
-			DPAWIFI_ERROR("%s::err getting pcd fq\n", __FUNCTION__) ;
+			DPAWIFI_ERROR("%s::err getting pcd fq\n", __func__) ;
 			return -1;
 		}
 		/*get port id required for FQ creation*/
 		if (get_ofport_portid(FMAN_IDX, priv->oh_port_handle, &portid)) {
-			DPAWIFI_ERROR("%s::err getting of port id\n", __FUNCTION__) ;
+			DPAWIFI_ERROR("%s::err getting of port id\n", __func__) ;
 			return -1;
 		}
 		DPAWIFI_INFO("%s::pcd FQ base for portid %d  dist %x(%d), count %d\n",
-				__FUNCTION__, portid, fqbase, fqbase, fqcount);
+				__func__, portid, fqbase, fqbase, fqcount);
 
 		if ((oh_iface_info = dpa_get_ohifinfo_by_portid(portid)) == NULL) {
-			DPAWIFI_ERROR("%s::err getting oh iface info of port id %u\n", __FUNCTION__, portid) ;
+			DPAWIFI_ERROR("%s::err getting oh iface info of port id %u\n", __func__, portid) ;
 			return -1;
 		}
 		if (oh_iface_info->pcd_proc_entry == NULL)
@@ -1790,7 +1789,7 @@ static int vwd_init_pcd_fqs(struct dpaa_vwd_priv_s *priv)
 		/*alloc for as many fqs as required */
 		priv->wlan_exception_fq = kzalloc((sizeof(struct dpa_fq) * fqcount), 1);
 		if (!priv->wlan_exception_fq) {
-			DPAWIFI_ERROR("%s::err allocating fq mem\n", __FUNCTION__) ;
+			DPAWIFI_ERROR("%s::err allocating fq mem\n", __func__) ;
 			return -1;
 		}
 		/*save dpa_fq base info */
@@ -1827,7 +1826,7 @@ static int vwd_init_pcd_fqs(struct dpaa_vwd_priv_s *priv)
 			/*create FQ */
 			if (qman_create_fq(dpa_fq->fqid, 0, fq)) {
 				DPAWIFI_ERROR("%s::qman_create_fq failed for fqid %d\n",
-						__FUNCTION__, dpa_fq->fqid);
+						__func__, dpa_fq->fqid);
 				goto err_ret;
 			}
 			opts.fqid = dpa_fq->fqid;
@@ -1840,7 +1839,7 @@ static int vwd_init_pcd_fqs(struct dpaa_vwd_priv_s *priv)
 			/*init FQ */
 			if (qman_init_fq(fq, QMAN_INITFQ_FLAG_SCHED, &opts)) {
 				DPAWIFI_ERROR("%s::qman_init_fq failed for fqid %d\n",
-						__FUNCTION__, dpa_fq->fqid);
+						__func__, dpa_fq->fqid);
 				qman_destroy_fq(fq, 0);
 				goto err_ret;
 			}
@@ -1848,7 +1847,7 @@ static int vwd_init_pcd_fqs(struct dpaa_vwd_priv_s *priv)
 			cdx_create_type_fqid_info_in_procfs(fq, PCD_DIR, oh_iface_info->pcd_proc_entry, NULL);
 #ifdef DPA_WIFI_DEBUG
 			DPAWIFI_INFO("%s::created pcd fq %x(%d) for wlan packets "
-					"channel 0x%x\n", __FUNCTION__,
+					"channel 0x%x\n", __func__,
 					dpa_fq->fqid, dpa_fq->fqid, dpa_fq->channel);
 #endif
 			/*next FQ */
@@ -1869,12 +1868,12 @@ err_ret:
 		fq = &dpa_fq->fq_base;
 		if (qman_retire_fq(fq, NULL)) {
 			DPAWIFI_ERROR("%s::Failed to retire FQ %x(%d)\n", 
-					__FUNCTION__, fq->fqid, fq->fqid);
+					__func__, fq->fqid, fq->fqid);
 			continue;
 		}
 		if (qman_oos_fq(fq)) {
 			DPAWIFI_ERROR("%s::Failed to retire FQ %x(%d)\n", 
-					__FUNCTION__, fq->fqid, fq->fqid);
+					__func__, fq->fqid, fq->fqid);
 			continue;
 		}
 		cdx_remove_fqid_info_in_procfs(fq->fqid);
@@ -1906,7 +1905,7 @@ static int create_vap_fwd_from_fman_fqs(struct vap_desc_s *vap, void *proc_entry
 
 	if (!num_portals) {
 		DPAWIFI_ERROR("%s::unable to get affined portal info\n",
-				__FUNCTION__);
+				__func__);
 		return -1;
 	}
 
@@ -1917,7 +1916,7 @@ static int create_vap_fwd_from_fman_fqs(struct vap_desc_s *vap, void *proc_entry
 		dpa_fq = kzalloc(sizeof(struct dpa_fq), GFP_KERNEL);
 
 		if (!dpa_fq) {
-			DPAWIFI_ERROR("%s::unable to alloc mem for dpa_fq\n", __FUNCTION__) ;
+			DPAWIFI_ERROR("%s::unable to alloc mem for dpa_fq\n", __func__) ;
 			return -1;
 		}
 		memset(dpa_fq, 0, sizeof(struct dpa_fq));
@@ -1928,7 +1927,7 @@ static int create_vap_fwd_from_fman_fqs(struct vap_desc_s *vap, void *proc_entry
 		/* fwd fq */
 		fq->cb.dqrr = vap_rx_fwd_pkt;
 		if (cdx_copy_eth_rx_channel_info(FMAN_IDX, dpa_fq)) {
-			DPAWIFI_ERROR("%s::unable to get cpu channel info\n", __FUNCTION__) ;
+			DPAWIFI_ERROR("%s::unable to get cpu channel info\n", __func__) ;
 			kfree(dpa_fq);
 			return -1;
 		}
@@ -1947,7 +1946,7 @@ static int create_vap_fwd_from_fman_fqs(struct vap_desc_s *vap, void *proc_entry
 
 		if (qman_create_fq(dpa_fq->fqid, flags, fq)) {
 			DPAWIFI_ERROR("%s::qman_create_fq failed for fqid %d\n",
-					__FUNCTION__, dpa_fq->fqid);
+					__func__, dpa_fq->fqid);
 			kfree(dpa_fq);
 			return -1;
 		}
@@ -1963,7 +1962,7 @@ static int create_vap_fwd_from_fman_fqs(struct vap_desc_s *vap, void *proc_entry
 				QM_INITFQ_WE_CONTEXTB | QM_INITFQ_WE_CONTEXTA);
 		if (qman_init_fq(fq, QMAN_INITFQ_FLAG_SCHED, &opts)) {
 			DPAWIFI_ERROR("%s::qman_init_fq failed for fqid %d\n",
-					__FUNCTION__, dpa_fq->fqid);
+					__func__, dpa_fq->fqid);
 			qman_destroy_fq(fq, 0);
 			kfree(dpa_fq);
 			return -1;
@@ -1975,7 +1974,7 @@ static int create_vap_fwd_from_fman_fqs(struct vap_desc_s *vap, void *proc_entry
 
 #ifdef DPA_WIFI_DEBUG
 		DPAWIFI_INFO("%s::created fq %x(%d) for wlan packets "
-				"channel 0x%x\n", __FUNCTION__,
+				"channel 0x%x\n", __func__,
 				dpa_fq->fqid, dpa_fq->fqid, dpa_fq->channel);
 #endif
 	}
@@ -1997,13 +1996,13 @@ static int create_vap_fqs(struct vap_desc_s *vap)
 
 	/*get port id required for FQ creation*/
 	if (get_ofport_portid(FMAN_IDX, vap->vwd->oh_port_handle, &portid)) {
-		DPAWIFI_ERROR("%s::err getting of port id\n", __FUNCTION__) ;
+		DPAWIFI_ERROR("%s::err getting of port id\n", __func__) ;
 		return -1;
 	}
-	DPAWIFI_INFO("%s:portid %d \n", __FUNCTION__, portid);
+	DPAWIFI_INFO("%s:portid %d \n", __func__, portid);
 
 	if ((oh_iface_info = dpa_get_ohifinfo_by_portid(portid)) == NULL) {
-		DPAWIFI_ERROR("%s::err getting oh iface info of port id %u\n", __FUNCTION__, portid) ;
+		DPAWIFI_ERROR("%s::err getting oh iface info of port id %u\n", __func__, portid) ;
 		return -1;
 	}
 	if (oh_iface_info->tx_proc_entry == NULL)
@@ -2013,7 +2012,7 @@ static int create_vap_fqs(struct vap_desc_s *vap)
 	}
 
 	if (create_vap_fwd_from_fman_fqs(vap, oh_iface_info->tx_proc_entry)) {
-		DPAWIFI_ERROR("%s::unable to create fwd fqs\n", __FUNCTION__) ;
+		DPAWIFI_ERROR("%s::unable to create fwd fqs\n", __func__) ;
 		return -1;
 	}
 
@@ -2027,7 +2026,7 @@ static int create_vap_fqs(struct vap_desc_s *vap)
 	/* create FQ for exception packets from wireless interface */
 	dpa_fq = kzalloc(sizeof(struct dpa_fq), GFP_KERNEL);
 	if (!dpa_fq) {
-		DPAWIFI_ERROR("%s::unable to alloc mem for dpa_fq\n", __FUNCTION__) ;
+		DPAWIFI_ERROR("%s::unable to alloc mem for dpa_fq\n", __func__) ;
 		return -1;
 	}
 	memset(dpa_fq, 0, sizeof(struct dpa_fq));
@@ -2049,7 +2048,7 @@ static int create_vap_fqs(struct vap_desc_s *vap)
 		flags |= QMAN_FQ_FLAG_DYNAMIC_FQID;
 	if (qman_create_fq(dpa_fq->fqid, flags, fq)) {
 		DPAWIFI_ERROR("%s::qman_create_fq failed for fqid %d\n",
-				__FUNCTION__, dpa_fq->fqid);
+				__func__, dpa_fq->fqid);
 		kfree(dpa_fq);
 		return -1;
 	}
@@ -2063,7 +2062,7 @@ static int create_vap_fqs(struct vap_desc_s *vap)
 			QM_INITFQ_WE_CONTEXTB | QM_INITFQ_WE_CONTEXTA);
 	if (qman_init_fq(fq, QMAN_INITFQ_FLAG_SCHED, &opts)) {
 		DPAWIFI_ERROR("%s::qman_init_fq failed for fqid %d\n",
-				__FUNCTION__, dpa_fq->fqid);
+				__func__, dpa_fq->fqid);
 		qman_destroy_fq(fq, 0);
 		kfree(dpa_fq);
 		return -1;
@@ -2076,7 +2075,7 @@ static int create_vap_fqs(struct vap_desc_s *vap)
 
 #ifdef DPA_WIFI_DEBUG
 	DPAWIFI_INFO("%s::created fq %x(%d) for wlan packets "
-			"channel 0x%x\n", __FUNCTION__,
+			"channel 0x%x\n", __func__,
 			dpa_fq->fqid, dpa_fq->fqid, dpa_fq->channel);
 #endif
 	return 0;
@@ -2089,12 +2088,12 @@ static void vwd_fq_destroy(struct qman_fq *fq)
 
 	_errno = qman_retire_fq(fq, NULL);
 	if (unlikely(_errno < 0)){
-		DPAWIFI_ERROR("%s: Error in retire_fq: %u with error:%d\n", __FUNCTION__, qman_fq_fqid(fq), _errno);
+		DPAWIFI_ERROR("%s: Error in retire_fq: %u with error:%d\n", __func__, qman_fq_fqid(fq), _errno);
 	}
 
 	_errno = qman_oos_fq(fq);
 	if (unlikely(_errno < 0)) {
-		DPAWIFI_ERROR("%s: Error in retire_fq: %u with error:%d\n", __FUNCTION__, qman_fq_fqid(fq), _errno);
+		DPAWIFI_ERROR("%s: Error in retire_fq: %u with error:%d\n", __func__, qman_fq_fqid(fq), _errno);
 	}
 
 	cdx_remove_fqid_info_in_procfs(fq->fqid);
@@ -2166,7 +2165,7 @@ static int add_device_tx_done_bpool(struct dpaa_vwd_priv_s  *vwd)
 	struct dpa_bp *bp_parent;
 
 	if (get_phys_port_poolinfo_bysize(VAPDEV_BUFSIZE, &vwd->parent_pool_info)) {
-		DPAWIFI_ERROR("%s::failed to locate eth bman pool for dev %s\n", __FUNCTION__, vwd->name);
+		DPAWIFI_ERROR("%s::failed to locate eth bman pool for dev %s\n", __func__, vwd->name);
 		return -1;
 	}
 	bp_parent = dpa_bpid2pool(vwd->parent_pool_info.pool_id);
@@ -2175,7 +2174,7 @@ static int add_device_tx_done_bpool(struct dpaa_vwd_priv_s  *vwd)
 
 	if (unlikely(bp == NULL)) {
 		DPAWIFI_ERROR("%s::failed to allocate mem for bman pool for dev %s\n",
-				__FUNCTION__,vwd->name);
+				__func__,vwd->name);
 		return -1;
 	}
 	bp->size = VAPDEV_BUFSIZE;
@@ -2183,11 +2182,11 @@ static int add_device_tx_done_bpool(struct dpaa_vwd_priv_s  *vwd)
 	vwd->txconf_bp = bp;
 	bp->dev = bp_parent->dev;
 	if (dpa_bp_alloc(bp, bp->dev)) {
-		DPAWIFI_ERROR("%s::dpa_bp_alloc failed for dev %s\n", __FUNCTION__, vwd->name);
+		DPAWIFI_ERROR("%s::dpa_bp_alloc failed for dev %s\n", __func__, vwd->name);
 		kfree(bp);
 		return -1;
 	}
-	printk("%s::txconf bpid %d, for dev %s\n", __FUNCTION__, bp->bpid, vwd->name);
+	printk("%s::txconf bpid %d, for dev %s\n", __func__, bp->bpid, vwd->name);
 
 	return 0;
 }
@@ -2240,10 +2239,10 @@ void drain_bp_tx_done_bpool(struct dpa_bp *bp)
 
 #ifdef DPA_WIFI_DEBUG
 			DPAWIFI_INFO("%s::buff from txconf pool %d addr %p\n",
-					__FUNCTION__, bp->bpid, (void *)(uint64_t)bmb[i].addr);
+					__func__, bp->bpid, (void *)(uint64_t)bmb[i].addr);
 #endif
 			if (skb) {
-				//      printk("%s::freeing skb %p\n", __FUNCTION__, tmp_skb);
+				//      printk("%s::freeing skb %p\n", __func__, tmp_skb);
 				//Unmap packet data
 #ifdef DPA_SG_SUPPORT
 				sgt = (struct qm_sg_entry *)(vaddr + priv->eth_priv->tx_headroom);
@@ -2322,11 +2321,11 @@ static int vwd_vap_up(struct dpaa_vwd_priv_s *priv, struct vap_desc_s *vap, stru
 		return -1;
 	}
 #ifdef DPA_WIFI_DEBUG
-	DPAWIFI_INFO("%s:: wifidev found.. %s\n", __FUNCTION__, cmd->ifname);
+	DPAWIFI_INFO("%s:: wifidev found.. %s\n", __func__, cmd->ifname);
 #endif
 	if (!(wifi_dev->flags & IFF_UP)) {
 		DPAWIFI_ERROR("%s::WiFi device %s not UP\n",
-				__FUNCTION__, &cmd->ifname[0]);
+				__func__, &cmd->ifname[0]);
 		dev_put(wifi_dev);
 		return -1;
 	}
@@ -2359,7 +2358,7 @@ static int vwd_vap_up(struct dpaa_vwd_priv_s *priv, struct vap_desc_s *vap, stru
 		/* create frame queues */
 		if (create_vap_fqs(vap)) {
 			DPAWIFI_ERROR("%s::unable to create vap fqs for device %s\n", 
-					__FUNCTION__, &cmd->ifname[0]);
+					__func__, &cmd->ifname[0]);
 			release_vap_fqs(vap);	
 			return -1;
 		}
@@ -2471,7 +2470,7 @@ static int dpaa_vwd_handle_vap( struct dpaa_vwd_priv_s *priv, struct vap_cmd_s *
                                 /* Create sysfs entry for vap interface */
                                 if(device_create_file(priv->vwd_device, &dev_attr_vap[cmd->vapid])) {
                                         DPAWIFI_ERROR("%s::unable to create sysfs entry for vap iface %s\n",
-                                                        __FUNCTION__, cmd->ifname);
+                                                        __func__, cmd->ifname);
                                 }
                                 spin_lock_bh(&priv->vaplock);
 
@@ -2537,7 +2536,7 @@ static int dpaa_vwd_handle_vap( struct dpaa_vwd_priv_s *priv, struct vap_cmd_s *
 			break;
 
 		default:
-			DPAWIFI_INFO("%s::unhandled cmd %d\n", __FUNCTION__, cmd->action);	
+			DPAWIFI_INFO("%s::unhandled cmd %d\n", __func__, cmd->action);	
 			rc = -1;
 			break;
 	}
@@ -2869,8 +2868,8 @@ int dpaa_vwd_init(void)
 	int rc = 0;
 
 	memset(priv, 0, sizeof(*priv));
-	DPAWIFI_INFO("%s::!!!!!!!!!!!!!! Buffer copy disabled !!!!!!!!!!!!!!!\n", __FUNCTION__);
-	DPAWIFI_INFO("%s::!!!!!!!!!!!!!! Wifi Perf image !!!!!!!!!!!!!!!\n", __FUNCTION__);
+	DPAWIFI_INFO("%s::!!!!!!!!!!!!!! Buffer copy disabled !!!!!!!!!!!!!!!\n", __func__);
+	DPAWIFI_INFO("%s::!!!!!!!!!!!!!! Wifi Perf image !!!!!!!!!!!!!!!\n", __func__);
 	priv->vwd_major = register_chrdev(0,"vwd",&vwd_fops);
 	if (priv->vwd_major < 0)
 	{
@@ -2924,19 +2923,19 @@ int dpaa_vwd_init(void)
 
 	if (add_device_tx_done_bpool(priv))
 	{
-		DPAWIFI_ERROR("%s::unable to create  device tx done bpool %s\n", __FUNCTION__, priv->name);
+		DPAWIFI_ERROR("%s::unable to create  device tx done bpool %s\n", __func__, priv->name);
 		goto err7;
 	}
 
 	if (add_device_tx_bpool(priv))
 	{
-		DPAWIFI_ERROR("%s::unable to create  device tx bpool %s\n", __FUNCTION__, priv->name);
+		DPAWIFI_ERROR("%s::unable to create  device tx bpool %s\n", __func__, priv->name);
 		goto err8;
 	}
 
 	if (dpa_register_wifi_xmit_local_hook(vwd_xmit_local_packet) < 0)
 	{
-		DPAWIFI_ERROR("%s::unable to create  device tx bpool %s\n", __FUNCTION__, priv->name);
+		DPAWIFI_ERROR("%s::unable to create  device tx bpool %s\n", __func__, priv->name);
 		goto err9;
 	}
 
@@ -2986,7 +2985,7 @@ void dpaa_vwd_exit(void)
 {
 	struct dpaa_vwd_priv_s  *priv = &vwd;
 
-	printk("%s::\n", __FUNCTION__);
+	printk("%s::\n", __func__);
 	dpa_unregister_wifi_xmit_local_hook();
 	release_device_tx_bpool(priv);
 	release_device_tx_done_bpool(priv);

@@ -63,8 +63,6 @@ static inline int FCODE_TO_EVENT(U32 fcode)
 
 		case FC_ICC: eventid = EVENT_ICC; break;
 
-		case FC_L2TP: eventid = EVENT_L2TP; break;
-
 		default: eventid = -1; break;
 	}
 

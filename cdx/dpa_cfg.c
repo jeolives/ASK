@@ -200,19 +200,19 @@ static int get_dist_info(struct cdx_port_info *port_info)
 	void *uspace_info;
 
 #ifdef DPA_CFG_DEBUG
-	DPA_INFO("%s::port %s dist %d\n", __FUNCTION__,
+	DPA_INFO("%s::port %s dist %d\n", __func__,
 			port_info->name, port_info->max_dist);
 #endif
 	if (port_info->max_dist == 0 || port_info->max_dist > CDX_MAX_DIST_PER_PORT) {
 		DPA_ERROR("%s::max_dist %u out of range\n",
-				__FUNCTION__, port_info->max_dist);
+				__func__, port_info->max_dist);
 		port_info->dist_info = NULL;
 		return -EINVAL;
 	}
 	dist_info = kcalloc(port_info->max_dist, sizeof(*dist_info), GFP_KERNEL);
 	if (!dist_info) {
 		DPA_ERROR("%s::memalloc for dist_info failed\n",
-				__FUNCTION__);
+				__func__);
 		port_info->dist_info = NULL;
 		return -ENOMEM;
 	}
@@ -221,7 +221,7 @@ static int get_dist_info(struct cdx_port_info *port_info)
 	if (copy_from_user(dist_info, uspace_info,
 			   port_info->max_dist * sizeof(*dist_info))) {
 		DPA_ERROR("%s::Read dist_info failed port %s\n",
-				__FUNCTION__, port_info->name);
+				__func__, port_info->name);
 		kfree(dist_info);
 		port_info->dist_info = NULL;
 		return -EIO;
@@ -257,7 +257,7 @@ static void *get_dist_info_by_fman_params(struct cdx_fman_info *finfo, uint32_t 
 	uint32_t ii, table_distrb_type = 0;
 	uint32_t jj;
 
-	DPA_INFO("%s(%d) table type %d \n", __FUNCTION__,__LINE__, table_type);
+	DPA_INFO("%s(%d) table type %d \n", __func__,__LINE__, table_type);
 	switch (table_type)
 	{
 		case ETHERNET_TABLE:
@@ -288,7 +288,7 @@ static void *get_dist_info_by_fman_params(struct cdx_fman_info *finfo, uint32_t 
 		for (jj = 0; jj < port_info->max_dist; jj++) {
 			if (dist->type == table_distrb_type) {
 				DPA_INFO("%s(%d) dist type %d , handle found \n",
-						__FUNCTION__,__LINE__, dist->type);
+						__func__,__LINE__, dist->type);
 				return (dist->handle);
 			}
 			dist++;
@@ -307,18 +307,18 @@ static int get_port_info(struct cdx_fman_info *finfo)
 	uint32_t ii;
 
 #ifdef DPA_CFG_DEBUG
-	DPA_INFO("%s::fm %d num ports %d\n", __FUNCTION__,
+	DPA_INFO("%s::fm %d num ports %d\n", __func__,
 			finfo->index, finfo->max_ports);
 #endif
 	if (finfo->max_ports == 0 || finfo->max_ports > CDX_MAX_PORTS_PER_FMAN) {
 		DPA_ERROR("%s::max_ports %u out of range\n",
-				__FUNCTION__, finfo->max_ports);
+				__func__, finfo->max_ports);
 		return -EINVAL;
 	}
 	port_info = kcalloc(finfo->max_ports, sizeof(*port_info), GFP_KERNEL);
 	if (!port_info) {
 		DPA_ERROR("%s::memalloc for port_info failed\n",
-				__FUNCTION__);
+				__func__);
 		return -ENOMEM;
 	}
 	uspace_info = finfo->portinfo;
@@ -326,7 +326,7 @@ static int get_port_info(struct cdx_fman_info *finfo)
 	if (copy_from_user(port_info, uspace_info,
 			   finfo->max_ports * sizeof(*port_info))) {
 		DPA_ERROR("%s::Read port_info failed\n",
-				__FUNCTION__);
+				__func__);
 		return -EIO;
 	}
 	/*
@@ -360,7 +360,7 @@ static int get_port_info(struct cdx_fman_info *finfo)
 						port_info->index, port_info->type);
 				if (!dev) {
 					DPA_ERROR("%s::could not map port %s\n",
-							__FUNCTION__, port_info->name);
+							__func__, port_info->name);
 					rc = -EIO;
 					goto out_free_uspace_dist;
 				} else {
@@ -370,7 +370,7 @@ static int get_port_info(struct cdx_fman_info *finfo)
 			}
 #ifdef DPA_CFG_DEBUG
 			DPA_INFO("%s::port %s, fmindex %d, port index %d, port id %d\n",
-					__FUNCTION__, port_info->name,
+					__func__, port_info->name,
 					port_info->fm_index,
 					port_info->index,
 					port_info->portid);
@@ -408,14 +408,14 @@ static int get_cctbl_info(struct cdx_fman_info *finfo)
 
 	if (finfo->num_tables == 0 || finfo->num_tables > CDX_MAX_TABLES_PER_FMAN) {
 		DPA_ERROR("%s::num_tables %u out of range\n",
-				__FUNCTION__, finfo->num_tables);
+				__func__, finfo->num_tables);
 		finfo->tbl_info = NULL;
 		return -EINVAL;
 	}
 	tbl_info = kcalloc(finfo->num_tables, sizeof(*tbl_info), GFP_KERNEL);
 	if (!tbl_info) {
 		DPA_ERROR("%s::memalloc for table_info failed\n",
-				__FUNCTION__);
+				__func__);
 		finfo->tbl_info = NULL;
 		return -ENOMEM;
 	}
@@ -424,7 +424,7 @@ static int get_cctbl_info(struct cdx_fman_info *finfo)
 	if (copy_from_user(tbl_info, (void *)uspace_info,
 			   finfo->num_tables * sizeof(*tbl_info))) {
 		DPA_ERROR("%s::Read tbl_info failed\n",
-				__FUNCTION__);
+				__func__);
 		kfree(tbl_info);
 		finfo->tbl_info = NULL;
 		return -EIO;
@@ -465,18 +465,18 @@ static int cdxdrv_set_miss_action(uint32_t fm_index)
 	tbl_info = finfo->tbl_info;
 	//based on gathered table info, set miss action for all tables
 #ifdef DPA_CFG_DEBUG
-	DPA_INFO("%s::tables %d\n", __FUNCTION__, finfo->num_tables);
+	DPA_INFO("%s::tables %d\n", __func__, finfo->num_tables);
 #endif
 	for (ii = 0; ii < finfo->num_tables; ii++) {
 		t_FmPcdCcNextEngineParams miss_engine_params;
 		memset(&miss_engine_params, 0, sizeof(t_FmPcdCcNextEngineParams));
 #ifdef DPA_CFG_DEBUG
-		DPA_INFO("%s::tbl %s %p changing miss action\n", __FUNCTION__,
+		DPA_INFO("%s::tbl %s %p changing miss action\n", __func__,
 				tbl_info->name, tbl_info->id);
 #endif
 #ifndef CDX_RTP_RELAY // if no RTP relay setting of miss-action is same for all tables
 #ifdef DPA_CFG_DEBUG
-		DPA_INFO("%s::RTP relay disabled,  changing miss action\n", __FUNCTION__);
+		DPA_INFO("%s::RTP relay disabled,  changing miss action\n", __func__);
 #endif
 		if((tbl_info->type != ETHERNET_TABLE) &&
 				(tbl_info->type != PPPOE_RELAY_TABLE) &&
@@ -492,15 +492,15 @@ static int cdxdrv_set_miss_action(uint32_t fm_index)
 				get_ethdist_info_by_fman_params(finfo);
 #if 1//def DPA_CFG_DEBUG
 			DPA_INFO("%s::changing miss action for table %s as KG scheme %p\n",
-					__FUNCTION__, tbl_info->name, 
+					__func__, tbl_info->name, 
 					miss_engine_params.params.kgParams.h_DirectScheme);
 #endif
 			if (miss_engine_params.params.kgParams.h_DirectScheme == NULL) {
 				DPA_ERROR("%s::error finding direct dist for table %s\n",
-						__FUNCTION__, tbl_info->name);
+						__func__, tbl_info->name);
 				return -1;
 			}
-			printk("%s::found direct dist for %s\n", __FUNCTION__,
+			printk("%s::found direct dist for %s\n", __func__,
 					tbl_info->name);
 		} else {
 			//adding miss action as policer
@@ -512,20 +512,20 @@ static int cdxdrv_set_miss_action(uint32_t fm_index)
 				CDX_EXPT_ETH_RATELIMIT;
 #if 1//def DPA_CFG_DEBUG
 			DPA_INFO("%s::changing miss action for table %s as policer profile %d\n",
-					__FUNCTION__, tbl_info->name, 
+					__func__, tbl_info->name, 
 					miss_engine_params.params.plcrParams.newRelativeProfileId);
 #endif
 		}
 		if (FM_PCD_HashTableModifyMissNextEngine(tbl_info->id,	
 					&miss_engine_params) != E_OK) {
 			DPA_ERROR("%s::error changing miss action table %s\n",
-					__FUNCTION__, tbl_info->name);
+					__func__, tbl_info->name);
 			return -1;
 		}
 #else
 		// RTP relay enabled
 #ifdef DPA_CFG_DEBUG
-		DPA_INFO("%s::RTP relay enabled,  changing miss action\n", __FUNCTION__);
+		DPA_INFO("%s::RTP relay enabled,  changing miss action\n", __func__);
 #endif
 		switch (tbl_info->type)
 		{
@@ -582,13 +582,13 @@ static int cdxdrv_set_miss_action(uint32_t fm_index)
 			) {
 			if (miss_engine_params.params.kgParams.h_DirectScheme == NULL) {
 				DPA_ERROR("%s::error finding direct dist for table %s\n",
-						__FUNCTION__, tbl_info->name);
+						__func__, tbl_info->name);
 				return -1;
 			}
 			miss_engine_params.nextEngine = e_FM_PCD_KG;
 #ifdef CDX_DPA_DEBUG
 			DPA_INFO("%s::changing miss action table %s as KG scheme %p\n",
-					__FUNCTION__, tbl_info->name,
+					__func__, tbl_info->name,
 					miss_engine_params.params.kgParams.h_DirectScheme);
 #endif
 		} else {
@@ -601,7 +601,7 @@ static int cdxdrv_set_miss_action(uint32_t fm_index)
 				CDX_EXPT_ETH_RATELIMIT;
 #ifdef CDX_DPA_DEBUG
 			DPA_INFO("%s::changing miss action table %s as policer, profile %d\n",
-					__FUNCTION__, tbl_info->name,
+					__func__, tbl_info->name,
 					miss_engine_params.params.plcrParams.newRelativeProfileId);
 #endif
 		}
@@ -609,7 +609,7 @@ static int cdxdrv_set_miss_action(uint32_t fm_index)
 					&miss_engine_params) != E_OK)
 		{
 			DPA_ERROR("%s::error changing miss action table %s\n",
-					__FUNCTION__, tbl_info->name);
+					__func__, tbl_info->name);
 			return -1;
 		}
 #endif //CDX_RTP_RELAY 
@@ -629,20 +629,20 @@ static int cdxdrv_get_fman_handles(struct cdx_fman_info *finfo)
 	fm_pcd_file = fget((unsigned long)finfo->pcd_handle);
 	if (!fm_pcd_file) {
 		DPA_ERROR("%s::PCD handle 0x%p trans failed.\n",
-				__FUNCTION__, finfo->pcd_handle);
+				__func__, finfo->pcd_handle);
 		return -1;
 	}
 	//map it to wrapper dev
 	fm_wrapper_dev = (t_LnxWrpFmDev *)fm_pcd_file->private_data;
 	if (!fm_wrapper_dev) {
 		DPA_ERROR("%s::null wrap dev for pcd 0x%p\n",
-				__FUNCTION__, finfo->pcd_handle);
+				__func__, finfo->pcd_handle);
 		fput(fm_pcd_file);
 		return -1;
 	}
 	if (!fm_wrapper_dev->h_PcdDev) {
 		DPA_ERROR("%s::null pcd dev for pcd 0x%p\n",
-				__FUNCTION__, finfo->pcd_handle);
+				__func__, finfo->pcd_handle);
 		fput(fm_pcd_file);
 		return -1;
 	}
@@ -668,29 +668,29 @@ int cdx_ioc_set_dpa_params(unsigned long args)
 	if (copy_from_user(&params, (void *)args,
 				sizeof(struct cdx_ctrl_set_dpa_params))) {
 		DPA_ERROR("%s::Read uspace args failed\n",
-				__FUNCTION__);
+				__func__);
 		return -EBUSY;
 	}
 	if (params.num_fmans == 0 || params.num_fmans > CDX_MAX_FMANS) {
 		DPA_ERROR("%s::num_fmans %u out of range\n",
-				__FUNCTION__, params.num_fmans);
+				__func__, params.num_fmans);
 		return -EINVAL;
 	}
 	fman_info = kcalloc(params.num_fmans, sizeof(*fman_info), GFP_KERNEL);
 	if (!fman_info) {
 		DPA_ERROR("%s::unable to allocate mem for fman_info\n",
-				__FUNCTION__);
+				__func__);
 		return -ENOMEM;
 	}
 	num_fmans = params.num_fmans;
 #ifdef DPA_CFG_DEBUG
-	DPA_INFO("%s::num fmans %d\n", __FUNCTION__, num_fmans);
+	DPA_INFO("%s::num fmans %d\n", __func__, num_fmans);
 #endif
 	//get fman info
 	if (copy_from_user(fman_info, (void *)params.fman_info,
 				num_fmans * sizeof(*fman_info))) {
 		DPA_ERROR("%s::Read fman_info failed\n",
-				__FUNCTION__);
+				__func__);
 		retval = -EIO;
 		goto err_ret;
 	}
@@ -728,7 +728,7 @@ int cdx_ioc_set_dpa_params(unsigned long args)
 		if (copy_from_user(&ipr_info, (void *)params.ipr_info,
 					sizeof(struct cdx_ipr_info))) {
 			DPA_ERROR("%s::Read iprv_info failed\n",
-					__FUNCTION__);
+					__func__);
 			retval = -EIO;
 			goto err_free_uspace_ptrs;
 		}
@@ -782,11 +782,11 @@ continue_after_ptrs:
 		for (jj = 0; jj < finfo->max_ports; jj++) {
 			if (!port_info->type)  {
 #ifdef DPA_CFG_DEBUG
-				DPA_INFO("%s::oh port %s found\n", __FUNCTION__, port_info->name);
+				DPA_INFO("%s::oh port %s found\n", __func__, port_info->name);
 #endif
 				if (cdx_add_oh_iface(port_info->name)) {
 					DPA_ERROR("%s::port %s add failed\n",
-							__FUNCTION__, port_info->name);
+							__func__, port_info->name);
 					retval = -EIO;
 					goto err_ret;
 				}
@@ -799,11 +799,11 @@ continue_after_ptrs:
 		for (jj = 0; jj < finfo->max_ports; jj++) {
 			if (port_info->type)  {
 #ifdef DPA_CFG_DEBUG
-				DPA_INFO("%s::adding port %s\n", __FUNCTION__, port_info->name);
+				DPA_INFO("%s::adding port %s\n", __func__, port_info->name);
 #endif
 				if (cdx_add_eth_onif(port_info->name)) {
 					DPA_ERROR("%s::port %s add failed\n", 
-							__FUNCTION__, port_info->name);
+							__func__, port_info->name);
 					retval = -EIO;
 					goto err_ret;
 				}
@@ -890,7 +890,7 @@ int get_dpa_eth_iface_info(struct eth_iface_info *iface_info, char *name)
 		finfo++;
 	}
 	DPA_ERROR("%s::could not find info for port %s\n", 
-			__FUNCTION__, name);
+			__func__, name);
 	return -1;
 }
 
@@ -918,7 +918,7 @@ int get_dpa_oh_iface_info(struct oh_iface_info *iface_info, char *name)
 		finfo++;
 	}
 	DPA_ERROR("%s::could not find info for port %s\n",
-			__FUNCTION__, name);
+			__func__, name);
 	return -1;
 }
 
@@ -943,7 +943,7 @@ struct cdx_port_info *get_dpa_port_info(char *name)
 		finfo++;
 	}
 	DPA_ERROR("%s::could not find info for port %s\n", 
-			__FUNCTION__, name);
+			__func__, name);
 	return NULL;
 }
 
@@ -998,7 +998,7 @@ int dpa_get_tx_chnl_info(uint32_t fqid, uint32_t *ch_id, uint32_t *wq_id)
 	//query for fq info
 	if (qman_query_fq(&fq, &fqd)) {
 		DPA_ERROR("%s::query fq failed on fqid %d\n",
-				__FUNCTION__, fq.fqid);
+				__func__, fq.fqid);
 		return FAILURE; 
 	}
 	//read tnd return he wq and channel info
@@ -1029,11 +1029,11 @@ void *dpa_get_tdinfo(uint32_t fm_index, uint32_t port_idx, uint32_t type)
 				tinfo++;
 			}
 			DPA_ERROR("%s::no matching type %d at index %d\n", 
-					__FUNCTION__, type, fm_index);
+					__func__, type, fm_index);
 			return NULL;
 		}
 	}
-	DPA_ERROR("%s::invalid index %d\n", __FUNCTION__, fm_index);	
+	DPA_ERROR("%s::invalid index %d\n", __func__, fm_index);	
 	return NULL;
 }
 #define DPA_PORT_TYPE_10G 10
@@ -1063,7 +1063,7 @@ int dpa_get_wan_port(uint32_t fm_index, uint32_t *port_idx)
 		finfo++;
 	}
 	DPA_ERROR("%s::no wan port found fm_index %d\n",
-			__FUNCTION__, fm_index);
+			__func__, fm_index);
 	return FAILURE;
 }
 
@@ -1176,7 +1176,7 @@ int cdx_ingress_policer_stats(uint32_t fm_index,uint32_t queue_no,void *stats,ui
 
 	if (!finfo->ingress_policer_info[queue_no].handle)
 	{
-		printk("%s::policer handle is NULL\n", __FUNCTION__);
+		printk("%s::policer handle is NULL\n", __func__);
 		return -1;
 	}
 

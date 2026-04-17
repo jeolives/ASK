@@ -33,11 +33,6 @@ extern TIMER_ENTRY rtpflow_timer;
 struct slist_head rtpcall_list[NUM_RTPFLOW_ENTRIES];
 
 
-/* extern TIMER_ENTRY rtpqos_timer; */
-/* extern struct slist_head rtpqos_list; */
-/* struct dlist_head hw_rtpqos_removal_list; */
-
-
 static void RTP_release_flow(PRTPflow pFlow);
 
 
@@ -80,7 +75,7 @@ static void rtp_flow_free(PRTPflow pFlow)
 			}
 			else
 			{
-				DPA_ERROR("%s(%d) Error in getting MURAM handle\n", __FUNCTION__,__LINE__);
+				DPA_ERROR("%s(%d) Error in getting MURAM handle\n", __func__,__LINE__);
 			}
 		}
 		kfree(pFlow->hw_flow);
@@ -97,12 +92,12 @@ struct _thw_RTPinfo * cdx_rtp_alloc_muram_rtpinfo(void)
 	uint32_t MuramSize;
 
 	DPA_INFO("%s(%d) sizeof(struct _thw_RTPinfo) %lu\n",
-			__FUNCTION__,__LINE__, sizeof(struct _thw_RTPinfo));
+			__func__,__LINE__, sizeof(struct _thw_RTPinfo));
 	// allocate MURAM memory for the RTP info, which is required to be accessed and modified by ucode
 	h_FmMuram = dpa_get_fm_MURAM_handle(0, &physicalMuramBase, &MuramSize);
 	if (!h_FmMuram)
 	{
-		DPA_ERROR("%s(%d) Error in getting MURAM handle\n", __FUNCTION__,__LINE__);
+		DPA_ERROR("%s(%d) Error in getting MURAM handle\n", __func__,__LINE__);
 		return NULL;
 	}
 
@@ -120,7 +115,7 @@ static void cdx_muram_rtpinfo_free(void *hw_flow)
 	h_FmMuram = dpa_get_fm_MURAM_handle(0, &physicalMuramBase, &MuramSize);
 	if (!h_FmMuram)
 	{
-		DPA_ERROR("%s(%d) Error in getting MURAM handle\n", __FUNCTION__,__LINE__);
+		DPA_ERROR("%s(%d) Error in getting MURAM handle\n", __func__,__LINE__);
 		return;
 	}
 
@@ -140,7 +135,7 @@ int cdx_rtp_set_hwinfo_fields(PRTPflow pFlow, PSockEntry pFromSocket)
 
 	if (create_ddr_and_copy_from_muram((void *)hw_flow->rtp_info, (void **)&pRtp_info, sizeof(struct _thw_RTPinfo)) == NULL)
 	{
-		DPA_ERROR("%s(%d) Failed to copy from muram to ddr:\n", __FUNCTION__, __LINE__);
+		DPA_ERROR("%s(%d) Failed to copy from muram to ddr:\n", __func__, __LINE__);
 		return -1;
 	}
 	/* reflect changes to hardware flow */
@@ -166,14 +161,14 @@ int cdx_rtp_set_hwinfo_fields(PRTPflow pFlow, PSockEntry pFromSocket)
 		flags |= RTP_OFFLOAD_SEQ_TAKEOVER;
 
 	DPA_INFO("%s(%d) MarkerBitConfMode %d , takeover_flags %x, MARKER_BIT_TAKEOVER %x\n",
-			__FUNCTION__, __LINE__,
+			__func__, __LINE__,
 			pFlow->takeover_flags, pFlow->MarkerBitConfMode, MARKER_BIT_TAKEOVER);
 
 	// Marker Bit Configuration Mode 1 -- Processing is done to Reset the bit (1->0,0->0)
 	if ((pFlow->takeover_flags & MARKER_BIT_TAKEOVER) &&
 			(pFlow->MarkerBitConfMode))
 	{
-		DPA_INFO("%s(%d) \n", __FUNCTION__, __LINE__);
+		DPA_INFO("%s(%d) \n", __func__, __LINE__);
 		flags |= RTP_OFFLOAD_RESET_MARKER_BIT;
 	}
 
@@ -207,7 +202,7 @@ int cdx_rtp_set_hwinfo_fields(PRTPflow pFlow, PSockEntry pFromSocket)
 	if (pFlow->takeover_mode  & RTP_TAKEOVER_MODE_TSINCR_FREQ)
 		flags |= RTP_OFFLOAD_TS_TAKEOVER_SAMPL_FREQ;
 
-	DPA_INFO("%s(%d) flags %x \n", __FUNCTION__,__LINE__, flags);
+	DPA_INFO("%s(%d) flags %x \n", __func__,__LINE__, flags);
 	pRtp_info->TimestampBase = cpu_to_be32(pFlow->TimestampBase);
 	pRtp_info->flags = cpu_to_be16(flags);
 	pRtp_info->Seq = cpu_to_be16(pFlow->Seq);
@@ -227,14 +222,14 @@ static int rtp_flow_add(PRTPflow pFlow, U32 hash, PSockEntry pFromSocket, PSockE
 	if (!pFlow->hw_flow)
 	{
 		DPA_ERROR("%s::unable to alloc mem for pFlow->hw_flow\n",
-				__FUNCTION__);
+				__func__);
 		return ERR_NOT_ENOUGH_MEMORY;
 	}
 
 	pFlow->hw_flow->rtp_info = cdx_rtp_alloc_muram_rtpinfo();
 	if (!pFlow->hw_flow->rtp_info)
 	{
-		DPA_ERROR("%s(%d) Error in getting MURAM handle\n", __FUNCTION__,__LINE__);
+		DPA_ERROR("%s(%d) Error in getting MURAM handle\n", __func__,__LINE__);
 		kfree(pFlow->hw_flow);
 		return ERR_NOT_ENOUGH_MEMORY;
 	}
@@ -250,7 +245,7 @@ static int rtp_flow_add(PRTPflow pFlow, U32 hash, PSockEntry pFromSocket, PSockE
 
 	if (cdx_rtp_set_hwinfo_fields(pFlow, pFromSocket) != 0)
 	{
-		DPA_ERROR("%s(%d) Error in setting rtp hwinfo fields.\n", __FUNCTION__,__LINE__);
+		DPA_ERROR("%s(%d) Error in setting rtp hwinfo fields.\n", __func__,__LINE__);
 		cdx_muram_rtpinfo_free((void *)pFlow->hw_flow->rtp_info);
 		kfree(pFlow->hw_flow);
 		pFlow->hw_flow = NULL;
@@ -272,7 +267,7 @@ static void rtp_flow_unlink(struct _thw_rtpflow *hw_flow, U32 hash)
 			(ExternalHashTableDeleteKey(hw_flow->td, 
 																	hw_flow->eeh_entry_index, hw_flow->eeh_entry_handle))) 
 	{
-		DPA_ERROR("%s(%d)::unable to remove entry from hash table\n", __FUNCTION__, __LINE__);
+		DPA_ERROR("%s(%d)::unable to remove entry from hash table\n", __func__, __LINE__);
 	}
 	//free table entry
 	if (hw_flow->eeh_entry_handle)
@@ -358,13 +353,13 @@ static int RTP_change_flow(PRTPflow pFlow, U16 ingress_socketID, U16 egress_sock
 	// create an entry in ehash table
 	if(cdx_create_rtp_conn_in_classif_table(pFlow, pingress_socket, pegress_socket))
 	{
-		DPA_ERROR("%s(%d) error in creating eehash table entry\n", __FUNCTION__, __LINE__);
+		DPA_ERROR("%s(%d) error in creating eehash table entry\n", __func__, __LINE__);
 		return -1;
 	}
 
 	if (cdx_rtp_set_hwinfo_fields(pFlow, pingress_socket) != 0)
 	{
-		DPA_ERROR("%s(%d) Error in setting rtp hwinfo fields.\n", __FUNCTION__,__LINE__);
+		DPA_ERROR("%s(%d) Error in setting rtp hwinfo fields.\n", __func__,__LINE__);
 		return -1;
 	}
 	cdx_ehash_set_rtp_info_params(hw_flow->ehash_rtp_relay_params, pFlow, pingress_socket);
@@ -508,13 +503,13 @@ static U16 RTP_Call_Open (U16 *p, U16 Length)
 	if(!pSocketA->pRtEntry)
 	{
 		DPA_INFO("%s(%d) missing route, checking for route\n",
-				__FUNCTION__,__LINE__);
+				__func__,__LINE__);
 		SOCKET4_check_route(pSocketA);
 	}
 	if(!pSocketB->pRtEntry)
 	{
 		DPA_INFO("%s(%d) missing route, checking for route\n",
-				__FUNCTION__,__LINE__);
+				__func__,__LINE__);
 		SOCKET4_check_route(pSocketB);
 	}
 
@@ -639,13 +634,13 @@ static U16 RTP_Call_Update (U16 *p, U16 Length)
 	if(!pSocketA->pRtEntry)
 	{
 		DPA_INFO("%s(%d) missing route, checking for route\n",
-				__FUNCTION__,__LINE__);
+				__func__,__LINE__);
 		SOCKET4_check_route(pSocketA);
 	}
 	if(!pSocketB->pRtEntry)
 	{
 		DPA_INFO("%s(%d) missing route, checking for route\n",
-				__FUNCTION__,__LINE__);
+				__func__,__LINE__);
 		SOCKET4_check_route(pSocketB);
 	}
 
@@ -729,7 +724,7 @@ static U16 RTP_Call_Control (U16 *p, U16 Length)
 		return ERR_RTP_UNKNOWN_CALL;
 
 	DPA_INFO("%s(%d) RTPCmd.ControlDir %0x\n",
-			__FUNCTION__,__LINE__,RTPCmd.ControlDir);
+			__func__,__LINE__,RTPCmd.ControlDir);
 	pCall->AtoB_flow->state = (RTPCmd.ControlDir & 0x1);
 	pCall->BtoA_flow->state = (RTPCmd.ControlDir & 0x2);
 	if (RTPCmd.ControlDir & 0x4)
@@ -739,13 +734,13 @@ static U16 RTP_Call_Control (U16 *p, U16 Length)
 		if (RTPCmd.ControlDir & 0x8)
 		{
 			pCall->AtoB_flow->hw_flow->flags |= RTP_RELAY_ENABLE_VLAN_P_BIT_LEARNING;
-			DPA_INFO("%s(%d) AtoB flow VLAN learningn feature is enabled\n",__FUNCTION__,__LINE__);
+			DPA_INFO("%s(%d) AtoB flow VLAN learningn feature is enabled\n",__func__,__LINE__);
 		}
 
 		if (RTPCmd.ControlDir & 0x16)
 		{
 			pCall->BtoA_flow->hw_flow->flags |= RTP_RELAY_ENABLE_VLAN_P_BIT_LEARNING;
-			DPA_INFO("%s(%d) BtoA flow VLAN learningn feature is enabled\n",__FUNCTION__,__LINE__);
+			DPA_INFO("%s(%d) BtoA flow VLAN learningn feature is enabled\n",__func__,__LINE__);
 		}
 	}
 	else
@@ -762,13 +757,13 @@ static U16 RTP_Call_Control (U16 *p, U16 Length)
 			{
 				vlan_hdr_val = *(pCall->AtoB_flow->hw_flow->vlan_hdr_ptr+ii);
 				DPA_INFO("%s(%d) vlan-hdr val %0x, pbit bit %d\n",
-						__FUNCTION__,__LINE__,vlan_hdr_val,pCall->AtoB_flow->vlan_p_bit_val);
+						__func__,__LINE__,vlan_hdr_val,pCall->AtoB_flow->vlan_p_bit_val);
 				vlan_hdr_val = vlan_hdr_val & 0xff1fffff;
 				vlan_hdr_val = vlan_hdr_val | 
 					(pCall->AtoB_flow->vlan_p_bit_val << 21);
 				*(pCall->AtoB_flow->hw_flow->vlan_hdr_ptr+ii) = vlan_hdr_val;
 				DPA_INFO("%s(%d) new vlan-hdr val %x\n",
-						__FUNCTION__,__LINE__,vlan_hdr_val);
+						__func__,__LINE__,vlan_hdr_val);
 			}
 		}
 		if (RTPCmd.vlanPbitConf & 0x02) // packets received on socket B
@@ -778,14 +773,14 @@ static U16 RTP_Call_Control (U16 *p, U16 Length)
 			{
 				vlan_hdr_val = *(pCall->BtoA_flow->hw_flow->vlan_hdr_ptr+ii);
 				DPA_INFO("%s(%d) vlan-hdr val %0x, pbit val %d\n",
-						__FUNCTION__,__LINE__,vlan_hdr_val,
+						__func__,__LINE__,vlan_hdr_val,
 						pCall->BtoA_flow->vlan_p_bit_val);
 				vlan_hdr_val = vlan_hdr_val & 0xff1fffff;
 				vlan_hdr_val = vlan_hdr_val | 
 					(pCall->BtoA_flow->vlan_p_bit_val << 21);
 				*(pCall->BtoA_flow->hw_flow->vlan_hdr_ptr+ii) = vlan_hdr_val;
 				DPA_INFO("%s(%d) new vlan-hdr val %0x\n",
-						__FUNCTION__,__LINE__,vlan_hdr_val);
+						__func__,__LINE__,vlan_hdr_val);
 			}
 		}
 	}	
@@ -797,7 +792,7 @@ static U16 RTP_Call_Control (U16 *p, U16 Length)
 		if (create_ddr_and_copy_from_muram((void *)pCall->AtoB_flow->hw_flow->rtp_info,
 					(void **)&pRtp_info, sizeof(struct _thw_RTPinfo)) == NULL)
 		{
-			DPA_ERROR("%s(%d) Failed to copy from muram to ddr:\n", __FUNCTION__, __LINE__);
+			DPA_ERROR("%s(%d) Failed to copy from muram to ddr:\n", __func__, __LINE__);
 			return -1;
 		}
 
@@ -814,7 +809,7 @@ static U16 RTP_Call_Control (U16 *p, U16 Length)
 		if (create_ddr_and_copy_from_muram((void *)pCall->BtoA_flow->hw_flow->rtp_info,
 					(void **)&pRtp_info, sizeof(struct _thw_RTPinfo)) == NULL)
 		{
-			DPA_ERROR("%s(%d) Failed to copy from muram to ddr:\n", __FUNCTION__, __LINE__);
+			DPA_ERROR("%s(%d) Failed to copy from muram to ddr:\n", __func__, __LINE__);
 			return -1;
 		}
 
@@ -865,11 +860,11 @@ static int display_rtp_info(struct _thw_RTPinfo	*rtp_info_muram)
 {
 	struct _thw_RTPinfo *rtp_info = NULL;
 
-	DPA_INFO("%s (%d) RTP_INFO: \n", __FUNCTION__,__LINE__);
+	DPA_INFO("%s (%d) RTP_INFO: \n", __func__,__LINE__);
 	if (create_ddr_and_copy_from_muram((void *)rtp_info_muram, (void **)&rtp_info,
 				sizeof(struct _thw_RTPinfo)) == NULL)
 	{
-		DPA_ERROR("%s(%d) Failed to copy from muram to ddr:\n", __FUNCTION__, __LINE__);
+		DPA_ERROR("%s(%d) Failed to copy from muram to ddr:\n", __func__, __LINE__);
 		return -1;
 	}
 
@@ -944,7 +939,7 @@ static U16 RTP_Call_TakeOver (U16 *p, U16 Length)
 	rtp_info = cdx_rtp_alloc_muram_rtpinfo();
 	if (!rtp_info)
 	{
-		DPA_ERROR("%s(%d) Error in getting MURAM handle\n", __FUNCTION__,__LINE__);
+		DPA_ERROR("%s(%d) Error in getting MURAM handle\n", __func__,__LINE__);
 		return ERR_NOT_ENOUGH_MEMORY;
 	}
 
@@ -952,7 +947,7 @@ static U16 RTP_Call_TakeOver (U16 *p, U16 Length)
 
 	/* reflect changes to hardware flow */
 	DPA_INFO("%s(%d) takeover flags %x, takeover mode %x \n",
-			__FUNCTION__, __LINE__, pflow->takeover_flags, pflow->takeover_mode);
+			__func__, __LINE__, pflow->takeover_flags, pflow->takeover_mode);
 	// in case of SSRC AUTO takeover , set SSRC value.
 	if (pflow->takeover_mode & RTP_TAKEOVER_MODE_SSRC_AUTO)
 	{
@@ -973,7 +968,7 @@ static U16 RTP_Call_TakeOver (U16 *p, U16 Length)
 
 	if (cdx_rtp_set_hwinfo_fields(pflow, pSocket) != 0)
 	{
-		DPA_ERROR("%s(%d) Error in setting rtp hwinfo fields.\n", __FUNCTION__,__LINE__);
+		DPA_ERROR("%s(%d) Error in setting rtp hwinfo fields.\n", __func__,__LINE__);
 		return -1;
 	}
 	cdx_ehash_set_rtp_info_params(hw_flow->ehash_rtp_relay_params, 
@@ -996,7 +991,7 @@ static U16 RTP_Call_TakeOver (U16 *p, U16 Length)
 	{
 		if (ExternalHashTableFmPcdHcSync(hw_flow->td))
 		{
-			DPA_ERROR("%s(%d) ExternalHashTableFmPcdHcSync failed\n", __FUNCTION__,__LINE__);
+			DPA_ERROR("%s(%d) ExternalHashTableFmPcdHcSync failed\n", __func__,__LINE__);
 		}
 	}
 
@@ -1058,14 +1053,14 @@ static U16 RTP_Call_SpecialTx_Control (U16 *p, U16 Length)
 	if (create_ddr_and_copy_from_muram((void *)pCall->AtoB_flow->hw_flow->rtp_info,
 				(void **)&pRtp_info_AtoB, sizeof(struct _thw_RTPinfo)) == NULL)
 	{
-		DPA_ERROR("%s(%d) Failed to copy from muram to ddr:\n", __FUNCTION__, __LINE__);
+		DPA_ERROR("%s(%d) Failed to copy from muram to ddr:\n", __func__, __LINE__);
 		return -1;
 	}
 	if (create_ddr_and_copy_from_muram((void *)pCall->BtoA_flow->hw_flow->rtp_info,
 				(void **)&pRtp_info_BtoA, sizeof(struct _thw_RTPinfo)) == NULL)
 	{
 		kfree(pRtp_info_AtoB);
-		DPA_ERROR("%s(%d) Failed to copy from muram to ddr:\n", __FUNCTION__, __LINE__);
+		DPA_ERROR("%s(%d) Failed to copy from muram to ddr:\n", __func__, __LINE__);
 		return -1;
 	}
 
@@ -1159,7 +1154,7 @@ static int RTP_query_stats_common(PRTCPQueryResponse pRTPRep, PRTCPStats pStats)
 		num_rx_valid = pStats->num_rx_pkts - first_packet - pStats->num_late_pkts - pStats->packets_duplicated - pStats->num_big_jumps;
 		if((pStats->average_reception_period >= num_rx_valid) && (num_rx_valid))
 		{
-			DPA_INFO("%s(%d) \n", __FUNCTION__,__LINE__); //TODO_RTP_TIME
+			DPA_INFO("%s(%d) \n", __func__,__LINE__); //TODO_RTP_TIME
 
 			pRTPRep->average_reception_period = pStats->average_reception_period / num_rx_valid; //expressed in us
 		}
@@ -1231,7 +1226,7 @@ static int RTP_reset_stats(PRTCPStats pStats_muram, U8 type)
 
 	if (create_ddr_and_copy_from_muram((void *)pStats_muram, (void **)&pStats, sizeof(RTCPStats)) == NULL)
 	{
-		DPA_ERROR("%s(%d) Failed to copy from muram to ddr:\n", __FUNCTION__, __LINE__);
+		DPA_ERROR("%s(%d) Failed to copy from muram to ddr:\n", __func__, __LINE__);
 		return -1;
 	}
 
@@ -1313,103 +1308,6 @@ static U16 RTCP_Query (U16 *p, U16 Length)
 	return NO_ERR;
 }
 
-#ifdef TODO_RTP_QOS
-/*************************** RTP Stats for QoS Measurement ****************************
-Notes:
------
-The goal of this feature is to add RTP QoS MEasurement support for both fast forwarded and Relayed connections in C1000
-FPP code. This feature is different from the RTCP Query for RTP Relay feature, but provides similar service.
-
-MSPD has implements similar API and common code in FPP to collect both RTP statistics for
-Relay and Fast Forwarded connections (only CMM CLI usage differs). So in terms of RTP
-Statistics only (processing, statistics format, etc) 
-
-Same control plane is used for both RTP FF Stats and RTP Relay Stats in order to minimize FPP modules
-usage
- ************************************************************************************/
-
-
-static void rtpqos_free_entry(PRTPQOS_ENTRY pEntry)
-{
-	if(pEntry->slot < MAX_RTP_STATS_ENTRY)
-	{
-		memset((U8*)&pEntry->rtp_info, 0, sizeof(RTPinfo));
-		memset((U8*)&pEntry->stats, 0, sizeof(RTCPStats));
-		pEntry->stream_id = RTP_STATS_FREE;
-		pEntry->stream_type = 0;
-	}
-}
-
-static PRTPQOS_ENTRY rtpqos_alloc_entry(U16 stream_id)
-{
-	int i;
-	PRTPQOS_ENTRY pStat = NULL;
-
-	for (i = 0; i < MAX_RTP_STATS_ENTRY; i++) {
-		if (rtpqos_cache[i].stream_id == RTP_STATS_FREE) {
-			pStat = &rtpqos_cache[i];
-			pStat->stream_id = stream_id;
-			break;
-		}
-	}
-	return pStat;
-}
-
-
-
-static void rtpqos_remove_entry(PRTPQOS_ENTRY pEntry)
-{
-	rtpqos_free_entry(pEntry);
-}
-
-static void rtpqos_update(PSockEntry pSocket)
-{
-}
-
-
-static int rtpqos_check_entry(U16 stream_id, U32 *saddr, U32 *daddr, U16 sport, U16 dport, U8 family)
-{
-	PRTPQOS_ENTRY pEntry = NULL;
-	int i;
-
-	for (i = 0; i < MAX_RTP_STATS_ENTRY; i++)
-	{
-		pEntry = &rtpqos_cache[i];
-
-		if(pEntry)
-		{
-			if(stream_id == pEntry->stream_id)
-				return ERR_RTP_STATS_STREAMID_ALREADY_USED;
-
-			if(family == IP4) {
-				if((pEntry->stream_id != RTP_STATS_FREE) && (saddr[0] == pEntry->saddr[0]) && (daddr[0] == pEntry->daddr[0]) && (sport == pEntry->sport) && (dport == pEntry->dport))
-					return ERR_RTP_STATS_DUPLICATED;
-
-			} else {
-				if((pEntry->stream_id != RTP_STATS_FREE) && !IPV6_CMP(saddr, pEntry->saddr) && !IPV6_CMP(daddr, pEntry->daddr) && (sport == pEntry->sport) && (dport == pEntry->dport))
-					return ERR_RTP_STATS_DUPLICATED;
-			}
-		}
-	}
-
-	return ERR_RTP_STATS_STREAMID_UNKNOWN;
-}
-
-
-static PRTPQOS_ENTRY rtpqos_get_entry_by_id(U16 stream_id)
-{
-	int i;
-
-	for (i = 0; i < MAX_RTP_STATS_ENTRY; i++)
-	{
-		if(stream_id == rtpqos_cache[i].stream_id)
-			return &rtpqos_cache[i];
-	}
-	return NULL;
-}
-#endif // TODO_RTP_QOS
-
-
 PRTPflow RTP_find_flow(U16 id)
 {
 	PRTPflow flow_entry;
@@ -1426,260 +1324,6 @@ PRTPflow RTP_find_flow(U16 id)
 	return NULL;
 }
 
-
-#ifdef TODO_RTP_QOS
-static int RTPQOS_enable_stats(U16 *p, U16 Length)
-{
-	RTP_ENABLE_STATS_COMMAND cmd;
-	PCtEntry pCT_entry = NULL;
-	PMC4Entry pMC_entry = NULL;
-	PMC6Entry pMC6_entry = NULL;
-	PSockEntry pSocket = NULL;
-	PSock6Entry pSocket6 = NULL;
-	PRTPQOS_ENTRY pStatEntry = NULL;
-	int check_status = NO_ERR;
-	U8 ip_family;
-
-	//check length
-	if (Length != sizeof(RTP_ENABLE_STATS_COMMAND))
-		return ERR_WRONG_COMMAND_SIZE;
-
-	memset((U8*)&cmd, 0, sizeof(RTP_ENABLE_STATS_COMMAND));
-
-	// Ensure alignment
-	memcpy((U8*)&cmd, (U8*)p, sizeof(RTP_ENABLE_STATS_COMMAND));
-
-	//0xFFFF is a reserved value and connot be used as a stream ID
-	if(cmd.stream_id == RTP_STATS_FREE)
-		return ERR_WRONG_COMMAND_PARAM;
-
-	//check all possible error cases before marking the connection
-
-	if((cmd.stream_type == IP4) || (cmd.stream_type == MC4) ||(cmd.stream_type == RLY))
-		ip_family = IP4;
-	else if((cmd.stream_type == IP6) || (cmd.stream_type == MC6) ||(cmd.stream_type == RLY6))
-		ip_family = IP6;
-	else
-		return ERR_RTP_STATS_WRONG_TYPE;
-
-	if((check_status = rtpqos_check_entry(cmd.stream_id, cmd.saddr, cmd.daddr, cmd.sport, cmd.dport, ip_family)) != ERR_RTP_STATS_STREAMID_UNKNOWN)
-		return check_status;
-
-	pStatEntry = rtpqos_alloc_entry(cmd.stream_id);
-	if(pStatEntry == NULL)
-		return ERR_RTP_STATS_MAX_ENTRIES;
-
-	//find corresponding CT or MC entry, if exists
-	switch(cmd.stream_type)
-	{
-		case IP4:
-			//auto mode not supported for ipv4
-			cmd.mode = 0;
-			if((pCT_entry = IPv4_get_ctentry(cmd.saddr[0], cmd.daddr[0], cmd.sport, cmd.dport, cmd.proto)) != NULL)
-			{
-				pCT_entry->status |= CONNTRACK_RTP_STATS;
-				pCT_entry->rtpqos_slot = pStatEntry->slot;
-			}
-			break;
-
-		case IP6:
-			//auto mode not supported for ipv6
-			cmd.mode = 0;
-			if((pCT_entry = IPv6_get_ctentry(cmd.saddr, cmd.daddr, cmd.sport, cmd.dport, cmd.proto)) != NULL)
-			{
-				pCT_entry->status |= CONNTRACK_RTP_STATS;
-				pCT_entry->rtpqos_slot = pStatEntry->slot;
-			}
-			break;
-
-		case MC4:
-			if((pMC_entry = MC4_rule_search(cmd.saddr[0], cmd.daddr[0])) != NULL)
-			{
-				pMC_entry->status |= CONNTRACK_RTP_STATS;
-				pMC_entry->rtpqos_slot = pStatEntry->slot;
-				pMC_entry->rtpqos_ref_count++;
-			}
-			break;
-
-		case MC6:
-			if((pMC6_entry = MC6_rule_search(cmd.saddr, cmd.daddr)) != NULL)
-			{
-				pMC6_entry->status |= CONNTRACK_RTP_STATS;
-				pMC6_entry->rtpqos_slot = pStatEntry->slot;
-				pMC6_entry->rtpqos_ref_count++;
-			}
-			break;
-
-		case RLY:
-			pSocket = SOCKET4_find_entry(cmd.saddr[0], cmd.sport, cmd.daddr[0], cmd.dport, cmd.proto);
-			if(pSocket != NULL)
-			{
-				pSocket->qos_enable = TRUE;
-				pSocket->rtpqos_slot = pStatEntry->slot;
-			}
-			break;
-
-		case RLY6:
-			pSocket6 = SOCKET6_find_entry(cmd.saddr, cmd.sport, cmd.daddr, cmd.dport, cmd.proto);
-			if(pSocket6 != NULL)
-			{
-				pSocket6->qos_enable = TRUE;
-				pSocket6->rtpqos_slot = pStatEntry->slot;
-			}
-			break;
-
-		default:
-			return ERR_RTP_STATS_WRONG_TYPE;
-	}
-
-	memcpy(pStatEntry->saddr, cmd.saddr, 4*sizeof(U32)); memcpy(pStatEntry->daddr, cmd.daddr, 4*sizeof(U32));
-	pStatEntry->sport = cmd.sport;  pStatEntry->dport = cmd.dport;
-	pStatEntry->proto = cmd.proto;
-
-	pStatEntry->stream_type = cmd.stream_type;
-	pStatEntry->rtp_info.first_packet = TRUE;
-	pStatEntry->rtp_info.probation = RTP_MIN_SEQUENTIAL;
-	pStatEntry->rtp_info.mode = cmd.mode;
-
-	//in multicast unset ports if auto mode is enabled
-	if((cmd.mode == 1) && ((cmd.stream_type == MC4) || (cmd.stream_type == MC6)))
-	{
-		pStatEntry->stats.sport = 0xFFFF;
-		pStatEntry->stats.dport = 0xFFFF;
-	}
-	else
-	{
-		pStatEntry->stats.sport = cmd.sport;
-		pStatEntry->stats.dport = cmd.dport;
-	}
-
-	/* Now adding hardware rtp qos stats entry to packet engine's cache */
-	if(rtpqos_add_entry(pStatEntry) != NO_ERR)
-		return ERR_NOT_ENOUGH_MEMORY;
-
-	return NO_ERR;
-}
-
-
-static int RTPQOS_disable_stats(U16 *p, U16 Length)
-{
-	PRTPQOS_ENTRY pRTPQos_entry = NULL;
-	PCtEntry pCT_entry = NULL;
-	PMC4Entry pMC_entry = NULL;
-	PMC6Entry pMC6_entry = NULL;
-	PSockEntry pSocket = NULL;
-	PSock6Entry pSocket6 = NULL;
-	U32 saddr[4];
-	U32 daddr[4];
-	U16 sport, dport, proto, stream_id;
-
-	//check length
-	if (Length != sizeof(RTP_DISABLE_STATS_COMMAND))
-		return ERR_WRONG_COMMAND_SIZE;
-
-	stream_id = p[0];
-
-	if((pRTPQos_entry = rtpqos_get_entry_by_id(stream_id)) == NULL)
-		return ERR_RTP_STATS_STREAMID_UNKNOWN;
-
-	memcpy(saddr, pRTPQos_entry->saddr, 4*sizeof(U32)); memcpy(daddr, pRTPQos_entry->daddr, 4*sizeof(U32));
-	sport = pRTPQos_entry->sport; dport = pRTPQos_entry->dport;
-	proto = pRTPQos_entry->proto;
-
-	switch(pRTPQos_entry->stream_type)
-	{
-		case IP4:
-			//find corresponding CT or MC entry, if exists
-			if((pCT_entry = IPv4_get_ctentry(saddr[0], daddr[0], sport, dport, proto)) == NULL)
-				goto reset_slot;
-			//set  CT or MC marker for per packet first level processing
-			pCT_entry->status &= ~ CONNTRACK_RTP_STATS;
-			break;
-
-		case IP6:
-			if((pCT_entry = IPv6_get_ctentry(saddr, daddr, sport, dport, proto)) == NULL)
-				goto reset_slot;
-			pCT_entry->status &= ~ CONNTRACK_RTP_STATS;
-			break;
-
-		case MC4:
-			if((pMC_entry = MC4_rule_search(saddr[0], daddr[0])) == NULL)
-				goto reset_slot;
-			if(pMC_entry->rtpqos_ref_count)
-			{
-				if(--pMC_entry->rtpqos_ref_count == 0)
-					pMC_entry->status &= ~ CONNTRACK_RTP_STATS;
-			}
-			break;
-
-		case MC6:
-			if((pMC6_entry = MC6_rule_search(saddr, daddr))== NULL)
-				goto reset_slot;
-			if(pMC6_entry->rtpqos_ref_count)
-			{
-				if(--pMC6_entry->rtpqos_ref_count == 0)
-					pMC6_entry->status &= ~ CONNTRACK_RTP_STATS;
-			}
-			break;
-
-		case RLY:
-			pSocket = SOCKET4_find_entry(saddr[0], sport, daddr[0], dport, proto);
-			if(pSocket == NULL)
-				goto reset_slot;
-			pSocket->qos_enable = FALSE;
-			break;
-
-		case RLY6:
-			pSocket6 = SOCKET6_find_entry(saddr, sport, daddr, dport, proto);
-			if(pSocket6 == NULL)
-				goto reset_slot;
-			pSocket6->qos_enable = FALSE;
-			break;
-	}
-
-reset_slot:
-	rtpqos_remove_entry(pRTPQos_entry);
-
-	return NO_ERR;
-}
-
-
-static U16 RTPQOS_query_stats (U16 *p, U16 Length)
-{
-	RTCPQueryCommand *pRTPCmd = (RTCPQueryCommand *)p;
-	PRTPQOS_ENTRY pEntry = NULL;
-	RTCPQueryResponse RTPRep;
-	PRTCPStats pStats;
-	U16 stream_id;
-
-	// Check length
-	if (Length != sizeof(RTP_QUERY_STATS_COMMAND))
-		return ERR_WRONG_COMMAND_SIZE;
-
-	stream_id = p[0];
-
-	memset((U8*)&RTPRep, 0, sizeof(RTCPQueryResponse));
-
-	if((pEntry = rtpqos_get_entry_by_id(stream_id)) == NULL)
-		return ERR_RTP_STATS_STREAMID_UNKNOWN;
-
-	pStats = RTCP_get_stats(&pEntry->stats, &pEntry->hw_rtpqos->stats, sizeof(RTCPStats));
-	if(pStats == NULL)
-		return ERR_RTP_STATS_NOT_AVAILABLE;
-
-	/* check against null pStats pointer is done in the RTP_query_stats_common function */
-	if(RTP_query_stats_common(&RTPRep, pStats))
-		return ERR_RTP_STATS_STREAMID_UNKNOWN;
-
-
-	if(pRTPCmd->flags)
-		RTP_reset_stats((PRTCPStats)&pEntry->hw_rtpqos->stats, pRTPCmd->flags);
-
-	memcpy((U8*)(p + 1), (U8*)&RTPRep, sizeof(RTCPQueryResponse));
-	return NO_ERR;
-
-}
-#endif // TODO_RTP_QOS
 
 
 static int rtp_set_dtmf_pt(U16 *p, U16 Length)
@@ -1768,163 +1412,6 @@ static U16 M_rtp_cmdproc(U16 cmd_code, U16 cmd_len, U16 *pcmd)
 	return retlen;
 }
 
-#ifdef TODO_RTP_QOS
-/* link a CT4 entry to a RTP statistics slot */
-int rtpqos_ipv4_link_stats_entry_by_tuple(PCtEntry pCT, U32 saddr, U32 daddr, U16 sport, U16 dport)
-{
-	int i;
-	PRTPQOS_ENTRY pEntry;
-
-	for (i = 0; i < MAX_RTP_STATS_ENTRY; i++)
-	{
-		pEntry = &rtpqos_cache[i];
-
-		if(pEntry->stream_id != RTP_STATS_FREE)
-		{
-			if((saddr == pEntry->saddr[0]) && (daddr == pEntry->daddr[0]) && (sport == pEntry->sport) && (dport == pEntry->dport))
-			{
-				pCT->status |= CONNTRACK_RTP_STATS;
-				pCT->rtpqos_slot = pEntry->slot;
-
-				return ERR_RTP_STATS_DUPLICATED;
-			}
-		}
-	}
-
-	return ERR_RTP_STATS_STREAMID_UNKNOWN;
-}
-
-
-/* link a CT6 entry to a RTP statistics slot */
-int rtpqos_ipv6_link_stats_entry_by_tuple(PCtEntryIPv6 pCT, U32 *saddr, U32 *daddr, U16 sport, U16 dport)
-{
-	int i;
-	PRTPQOS_ENTRY pEntry;
-
-	for (i = 0; i < MAX_RTP_STATS_ENTRY; i++)
-	{
-		pEntry = &rtpqos_cache[i];
-
-		if(pEntry->stream_id != RTP_STATS_FREE)
-		{
-			if(!IPV6_CMP(saddr, pEntry->saddr) && !IPV6_CMP(daddr, pEntry->daddr) && (sport == pEntry->sport) && (dport == pEntry->dport))
-			{
-				pCT->status |= CONNTRACK_RTP_STATS;
-				pCT->rtpqos_slot = pEntry->slot;
-
-				return ERR_RTP_STATS_DUPLICATED;
-			}
-		}
-	}
-	return ERR_RTP_STATS_STREAMID_UNKNOWN;
-}
-
-
-/* link a MC4 entry to a RTP statistics slot */
-int rtpqos_mc4_link_stats_entry_by_tuple(PMC4Entry pMC, U32 saddr, U32 daddr)
-{
-	int i;
-	PRTPQOS_ENTRY pEntry;
-
-	for (i = 0; i < MAX_RTP_STATS_ENTRY; i++)
-	{
-		pEntry = &rtpqos_cache[i];
-
-		if(pEntry->stream_id != RTP_STATS_FREE)
-		{
-			if((saddr == pEntry->saddr[0]) && (daddr == pEntry->daddr[0]))
-			{
-				pMC->status |= CONNTRACK_RTP_STATS;
-				pMC->rtpqos_slot = pEntry->slot;
-				pMC->rtpqos_ref_count++;
-
-				return ERR_RTP_STATS_DUPLICATED;
-			}
-		}
-	}
-
-	return ERR_RTP_STATS_STREAMID_UNKNOWN;
-}
-
-
-/* link a MC6 entry to a RTP statistics slot */
-int rtpqos_mc6_link_stats_entry_by_tuple(PMC6Entry pMC, U32 *saddr, U32 *daddr)
-{
-	int i;
-	PRTPQOS_ENTRY pEntry;
-
-	for (i = 0; i < MAX_RTP_STATS_ENTRY; i++)
-	{
-		pEntry = &rtpqos_cache[i];
-
-		if(pEntry->stream_id != RTP_STATS_FREE)
-		{
-			if (!IPV6_CMP(saddr, pEntry->saddr) && !IPV6_CMP(daddr, pEntry->daddr)) 
-			{
-				pMC->status |= CONNTRACK_RTP_STATS;
-				pMC->rtpqos_slot = pEntry->slot;
-				pMC->rtpqos_ref_count++;
-
-				return ERR_RTP_STATS_DUPLICATED;
-			}
-		}
-	}
-
-	return ERR_RTP_STATS_STREAMID_UNKNOWN;
-}
-
-/* link a socket entry to a RTP statistics slot */
-int rtpqos_relay_link_stats_entry_by_tuple(PSockEntry pSocket, U32 saddr, U32 daddr, U16 sport, U16 dport)
-{
-	int i;
-	PRTPQOS_ENTRY pEntry = NULL;
-
-	for (i = 0; i < MAX_RTP_STATS_ENTRY; i++)
-	{
-		pEntry = &rtpqos_cache[i];
-
-		if(pEntry->stream_id != RTP_STATS_FREE)
-		{
-			if((saddr == pEntry->saddr[0]) && (daddr == pEntry->daddr[0]) && (sport == pEntry->sport) && (dport == pEntry->dport))
-			{
-				pSocket->qos_enable = TRUE;
-				pSocket->rtpqos_slot = pEntry->slot;
-
-				return ERR_RTP_STATS_DUPLICATED;
-			}
-		}
-	}
-
-	return ERR_RTP_STATS_STREAMID_UNKNOWN;
-}
-
-
-/* link a socket6 entry to a RTP statistics slot */
-int rtpqos_relay6_link_stats_entry_by_tuple(PSock6Entry pSocket, U32 *saddr, U32 *daddr, U16 sport, U16 dport)
-{
-	int i;
-	PRTPQOS_ENTRY pEntry = NULL;
-
-	for (i = 0; i < MAX_RTP_STATS_ENTRY; i++)
-	{
-		pEntry = &rtpqos_cache[i];
-
-		if(pEntry->stream_id != RTP_STATS_FREE)
-		{
-			if(!IPV6_CMP(saddr, pEntry->saddr) && !IPV6_CMP(daddr, pEntry->daddr) && (sport == pEntry->sport) && (dport == pEntry->dport))
-			{
-				pSocket->qos_enable = TRUE;
-				pSocket->rtpqos_slot = pEntry->slot;
-
-				return ERR_RTP_STATS_DUPLICATED;
-			}
-		}
-	}
-	return ERR_RTP_STATS_STREAMID_UNKNOWN;
-}
-
-#endif // TODO_RTP_QOS
-
 BOOL rtp_relay_init(void)
 {
 	int i;
@@ -1941,39 +1428,12 @@ BOOL rtp_relay_init(void)
 		slist_head_init(&rtpcall_list[i]);
 	}
 
-#ifdef TODO_RTP_QOS
-	voice_buffer_init();
-
-	/* RTP QOS Measurement */
-
-	dlist_head_init(&hw_rtpqos_removal_list);
-
-	timer_init(&rtpqos_timer, hw_rtpqos_delayed_remove);
-	timer_add(&rtpqos_timer, CT_TIMER_INTERVAL);
-
-	/* mark all rtp stats entry as unused */
-	for(i = 0; i < MAX_RTP_STATS_ENTRY; i++) {
-		rtpqos_cache[i].stream_id = RTP_STATS_FREE;
-		rtpqos_cache[i].slot = i;
-	}
-
-#endif //TODO_RTP_QOS
 	return 0;
 }
 
 
 void rtp_relay_exit(void)
 {
-#ifdef TODO_RTP_QOS
-	struct dlist_head *entry;
-	struct _thw_rtpflow *hw_flow;
-	struct _thw_rtpqos_entry *hw_rtpqos;
-
-	voice_buffer_exit();
-
-	timer_del(&rtpflow_timer);
-#endif //TODO_RTP_QOS
-
 	rtp_flow_reset();
 	rtp_call_reset();
 

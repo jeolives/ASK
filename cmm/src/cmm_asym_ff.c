@@ -27,7 +27,7 @@
 ******************************************************************/
 int cmmAsymFFEnableShow(struct cli_def * cli, const char *command, char *argv[], int argc)
 {
-	if(globalConf.asymff_enable)
+	if (__atomic_load_n(&globalConf.asymff_enable, __ATOMIC_ACQUIRE))
 		cli_print(cli, " The Asymmetric Fast forward support is enabled");
 	else
 		cli_print(cli, " The Asymmetric Fast forward support is disabled");
@@ -46,12 +46,12 @@ int cmmAsymFFProcessClientCmd(u_int8_t *cmd_buf, u_int16_t *res_buf, u_int16_t *
         switch (entryCmd->action) {
                 case CMMD_ASYM_FF_ACTION_ENABLE:
                         cmm_print(DEBUG_INFO, "cmmAsymFFProcessClientCmd- CMMD_ASYM_FF_ACTION_ENABLE\n");
-                        globalConf.asymff_enable = 1;
+                        __atomic_store_n(&globalConf.asymff_enable, 1, __ATOMIC_RELEASE);
                         break;
 
                 case CMMD_ASYM_FF_ACTION_DISABLE:
                         cmm_print(DEBUG_INFO, "cmmAsymFFProcessClientCmd- CMMD_ASYM_FF_ACTION_DISABLE\n");
-                        globalConf.asymff_enable = 0;
+                        __atomic_store_n(&globalConf.asymff_enable, 0, __ATOMIC_RELEASE);
                         break;
 
                 default:

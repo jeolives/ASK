@@ -1418,12 +1418,16 @@ int itf_table_init(struct interface_table *ctx)
 	cmmVlanReset(ctx->fci_handle);
 
 	if (itf_table_update(ctx) < 0)
-		goto err4;
+		goto err5;
 
 	return 0;
 
+err5:
 #if !defined(IPSEC_SUPPORT_DISABLED)
+	fci_close(ctx->fci_key_handle);
 err4:
+	fci_close(ctx->fci_handle);
+#else
 	fci_close(ctx->fci_handle);
 #endif
 

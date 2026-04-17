@@ -401,26 +401,42 @@ struct net_device *find_osdev_by_fman_params(uint32_t fm_idx, uint32_t port_idx,
 
 	device = first_net_device(&init_net);
 	while(1) {
-		if (!device) 
+		if (!device)
 			break;
 		if (device->type == ARPHRD_ETHER) {
 			t_LnxWrpFmDev *p_LnxWrpFmDev;
+			/* Only dereference netdev_priv() as dpa_priv_s on actual
+			 * DPAA netdevs. Non-DPAA ARPHRD_ETHER devices (bridges,
+			 * bonds, veth, etc.) have different private data layouts
+			 * — accessing them as dpa_priv_s crashes the kernel. */
+			if (!device->dev.parent || !device->dev.parent->driver)
+				goto next_device;
+			if (!strstr(device->dev.parent->driver->name, "dpa"))
+				goto next_device;
+
 			priv = netdev_priv(device);
 			macdev = priv->mac_dev;
 			if (macdev) {
 				p_LnxWrpFmDev = (t_LnxWrpFmDev*)macdev->fm;
 				if (speed == 10) {
 					//10 gig interfaces upports only SUPPORTED_10000baseT_Full
-					/*DGW board has 2 fixed-link interfaces 
+					/*DGW board has 2 fixed-link interfaces
 						1 - (eth2)(xDSL)1G Fixed link interface linked to rgmii-txid
 						2 - eth5(G.fast)- 1G Fixed link interface linked to sgmii and
 						connected to 10G link of the board.
 						sgmii - considered as 1000baseT_Full and this has cell_index = 0*/
 
 					if ( (!macdev->fixed_link) && (macdev->if_support != SUPPORTED_10000baseT_Full) )
-						goto next_device; 
+						goto next_device;
+				} else {
+					/* 1G search: skip 10G-only interfaces to prevent
+					 * false matches when cell_index overlaps between
+					 * 1G and 10G port types (SDK numbers them
+					 * independently within each type). */
+					if (macdev->max_speed == 10000)
+						goto next_device;
 				}
-				if ((fm_idx == p_LnxWrpFmDev->id) && 
+				if ((fm_idx == p_LnxWrpFmDev->id) &&
 						(port_idx == macdev->cell_index))
 					return device;
 			}
@@ -2889,18 +2905,20 @@ static void virt_iface_stats_callback(struct net_device *dev, struct rtnl_link_s
 			break;
 		if(iface_info->if_flags & IF_TYPE_PPPOE) {
 			struct en_ehash_ifstats_with_ts *stats;
-			//printk("%s::returning pppoe iface stats\n", __FUNCTION__);
 			stats = (struct en_ehash_ifstats_with_ts *)iface_info->stats;
+			if (!stats || !virt_addr_valid(stats))
+				break;
 			storage->rx_packets += cpu_to_be32(stats->rxstats.pkts);
 			storage->rx_bytes += cpu_to_be64(stats->rxstats.bytes);
 			storage->tx_packets += cpu_to_be32(stats->txstats.pkts);
 			storage->tx_bytes += cpu_to_be64(stats->txstats.bytes);
 			break;
-		} 
+		}
 		if(iface_info->if_flags & (IF_TYPE_TUNNEL | IF_TYPE_VLAN | IF_TYPE_ETHERNET)) {
 			struct en_ehash_ifstats *stats;
-			//printk("%s::returning other iface stats\n", __FUNCTION__);
 			stats = (struct en_ehash_ifstats *)iface_info->stats;
+			if (!stats || !virt_addr_valid(stats))
+				break;
 			storage->rx_packets += cpu_to_be32(stats->rxstats.pkts);
 			storage->rx_bytes += cpu_to_be64(stats->rxstats.bytes);
 			storage->tx_packets += cpu_to_be32(stats->txstats.pkts);

@@ -481,9 +481,14 @@ int delete_entry_from_classif_table(PCtEntry entry)
 		DPA_ERROR("%s:: Ct entry is NULL\n", __func__);
 		return FAILURE;
 	}
+	if (!entry->ct)
+	{
+		DPA_ERROR("%s:: entry->ct is NULL (already freed?)\n", __FUNCTION__);
+		return FAILURE;
+	}
 
 	CDX_DPA_DPRINT("\n");
-	if (ExternalHashTableDeleteKey(entry->ct->td, 
+	if (ExternalHashTableDeleteKey(entry->ct->td,
 			entry->ct->index, entry->ct->handle)) {
                 DPA_ERROR("%s::unable to remove entry from hash table\n", __func__);
 		return FAILURE;

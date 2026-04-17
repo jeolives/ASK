@@ -141,6 +141,11 @@ static void cmmCtForceUpdate(struct nfct_handle * handler, struct ctTable * ctEn
 		SaddrReply = nfct_get_attr(ct, ATTR_REPL_IPV4_SRC);
 		DaddrReply = nfct_get_attr(ct, ATTR_REPL_IPV4_DST);
 
+		if (!Saddr || !Daddr || !SaddrReply || !DaddrReply) {
+			cmm_print(DEBUG_ERROR, "%s: missing IPv4 tuple attrs\n", __func__);
+			return;
+		}
+
 		nfct_set_attr(ctTemp, ATTR_ORIG_IPV4_SRC, Saddr);
 		nfct_set_attr(ctTemp, ATTR_ORIG_IPV4_DST, Daddr);
 		nfct_set_attr(ctTemp, ATTR_REPL_IPV4_SRC, SaddrReply);
@@ -152,6 +157,11 @@ static void cmmCtForceUpdate(struct nfct_handle * handler, struct ctTable * ctEn
 		Daddr = nfct_get_attr(ct, ATTR_ORIG_IPV6_DST);
 		SaddrReply = nfct_get_attr(ct, ATTR_REPL_IPV6_SRC);
 		DaddrReply = nfct_get_attr(ct, ATTR_REPL_IPV6_DST);
+
+		if (!Saddr || !Daddr || !SaddrReply || !DaddrReply) {
+			cmm_print(DEBUG_ERROR, "%s: missing IPv6 tuple attrs\n", __func__);
+			return;
+		}
 
 		nfct_set_attr(ctTemp, ATTR_ORIG_IPV6_SRC, Saddr);
 		nfct_set_attr(ctTemp, ATTR_ORIG_IPV6_DST, Daddr);
@@ -426,7 +436,14 @@ static struct ctTable *__cmmCtAdd(struct nf_conntrack *ct)
 		SaddrReply = nfct_get_attr(ct, ATTR_REPL_IPV6_SRC);
 		DaddrReply = nfct_get_attr(ct, ATTR_REPL_IPV6_DST);
 	}
-	
+
+	if (!Saddr || !Daddr || !SaddrReply || !DaddrReply) {
+		cmm_print(DEBUG_ERROR, "%s: missing tuple attrs, family=%d\n",
+			  __func__, newEntry->family);
+		free(newEntry);
+		goto err0;
+	}
+
 	//Add the Conntrack to the local table
 	key = HASH_CT(newEntry->family, Saddr,
 			Daddr,

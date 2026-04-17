@@ -312,10 +312,10 @@ static void cmmRouteDumpTable(char *output_device)
 {
 	struct route_list *temp;
 	char s[INET_ADDRSTRLEN], s2[INET_ADDRSTRLEN];
-	char mtu_buf[16];
+	char mtu_buf[32];
 	char dstip_buf[40];
 	char srcip_buf[40];
-	char input_buf[16];
+	char input_buf[IFNAMSIZ];
 	char proto_buf[16];
 	char dstport_buf[32];
 	char srcport_buf[32];
@@ -329,66 +329,68 @@ static void cmmRouteDumpTable(char *output_device)
 		{
 
 			if (temp->route.mtu != 0)
-				sprintf(mtu_buf, "mtu:%d ", temp->route.mtu);
+				snprintf(mtu_buf, sizeof(mtu_buf), "mtu:%d ", temp->route.mtu);
 			else
 				mtu_buf[0] = '\0';
-		
+
 			if (temp->route.dst_addr[0]) {
 				if (temp->route.dst_addr[1] != temp->route.dst_addr[0]) {
-					sprintf(dstip_buf, "%s-%s",
+					snprintf(dstip_buf, sizeof(dstip_buf), "%s-%s",
 						inet_ntop(AF_INET, &temp->route.dst_addr[0], s, sizeof(s)),
-						inet_ntop(AF_INET, &temp->route.dst_addr[1], s2, sizeof(s2))); 
+						inet_ntop(AF_INET, &temp->route.dst_addr[1], s2, sizeof(s2)));
 				} else {
-					sprintf(dstip_buf, "%s",
+					snprintf(dstip_buf, sizeof(dstip_buf), "%s",
 						inet_ntop(AF_INET, &temp->route.dst_addr[0], s, sizeof(s)));
 				}
 			} else {
-				strcpy(dstip_buf, "*");
+				STR_TRUNC_COPY(dstip_buf, "*", sizeof(dstip_buf));
 			}
-		
+
 			if (temp->route.src_addr[0]) {
 				if (temp->route.src_addr[1] != temp->route.src_addr[0]) {
-					sprintf(srcip_buf, "%s-%s",
+					snprintf(srcip_buf, sizeof(srcip_buf), "%s-%s",
 						inet_ntop(AF_INET, &temp->route.src_addr[0], s, sizeof(s)),
-						inet_ntop(AF_INET, &temp->route.src_addr[1], s2, sizeof(s2))); 
+						inet_ntop(AF_INET, &temp->route.src_addr[1], s2, sizeof(s2)));
 				} else {
-					sprintf(srcip_buf, "%s",
+					snprintf(srcip_buf, sizeof(srcip_buf), "%s",
 						inet_ntop(AF_INET, &temp->route.src_addr[0], s, sizeof(s)));
 				}
 			} else {
-				strcpy(srcip_buf, "*");
+				STR_TRUNC_COPY(srcip_buf, "*", sizeof(srcip_buf));
 			}
-		
+
 			if (temp->route.input_device_str[0]) {
-				strcpy(input_buf, temp->route.input_device_str);
+				STR_TRUNC_COPY(input_buf, temp->route.input_device_str, sizeof(input_buf));
 			} else {
-				strcpy(input_buf, "*");
+				STR_TRUNC_COPY(input_buf, "*", sizeof(input_buf));
 			}
-		
+
 			if (temp->route.proto) {
-				sprintf(proto_buf, "%d", temp->route.proto);
+				snprintf(proto_buf, sizeof(proto_buf), "%d", temp->route.proto);
 			} else {
-				strcpy(proto_buf, "*");
+				STR_TRUNC_COPY(proto_buf, "*", sizeof(proto_buf));
 			}
-		
+
 			if (temp->route.dst_port[0]) {
 				if (temp->route.dst_port[1] != temp->route.dst_port[0]) {
-					sprintf(dstport_buf, "%d-%d", temp->route.dst_port[0], temp->route.dst_port[1]);
+					snprintf(dstport_buf, sizeof(dstport_buf), "%d-%d",
+						 temp->route.dst_port[0], temp->route.dst_port[1]);
 				} else {
-					sprintf(dstport_buf, "%d", temp->route.dst_port[0]);
+					snprintf(dstport_buf, sizeof(dstport_buf), "%d", temp->route.dst_port[0]);
 				}
 			} else {
-				strcpy(dstport_buf, "*");
+				STR_TRUNC_COPY(dstport_buf, "*", sizeof(dstport_buf));
 			}
-		
+
 			if (temp->route.src_port[0]) {
 				if (temp->route.src_port[1] != temp->route.src_port[0]) {
-					sprintf(srcport_buf, "%d-%d", temp->route.src_port[0], temp->route.src_port[1]);
+					snprintf(srcport_buf, sizeof(srcport_buf), "%d-%d",
+						 temp->route.src_port[0], temp->route.src_port[1]);
 				} else {
-					sprintf(srcport_buf, "%d", temp->route.src_port[0]);
+					snprintf(srcport_buf, sizeof(srcport_buf), "%d", temp->route.src_port[0]);
 				}
 			} else {
-				strcpy(srcport_buf, "*");
+				STR_TRUNC_COPY(srcport_buf, "*", sizeof(srcport_buf));
 			}
 		
 			cmm_print(DEBUG_STDOUT, "dev:%s prio:%d %sdstip:%s srcip:%s input:%s proto:%s dstport:%s srcport:%s\n",

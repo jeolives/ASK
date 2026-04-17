@@ -2847,22 +2847,19 @@ int get_phys_port_poolinfo_bysize(uint32_t size, struct port_bman_pool_info *poo
 	return -1;
 }
 
+/* Caller owns the returned netdev reference, held via priv->net_dev.
+ * The sole caller (vwd init in dpa_wifi.c) releases it in dpaa_vwd_exit()
+ * via dev_put(priv->eth_priv->net_dev). */
 struct dpa_priv_s* get_eth_priv(unsigned char* name)
 {
 	struct net_device *device;
-	struct dpa_priv_s *priv;
 
 	device = dev_get_by_name(&init_net, name);
 	if (!device) {
 		DPA_INFO("%s::could not find device %s\n", __FUNCTION__, name);
 		return NULL;
 	}
-	priv = netdev_priv(device);
-	/* The returned priv points into the netdev's allocation, which is
-	 * kept alive by the underlying DPAA eth driver for the lifetime of
-	 * this module, so it is safe to drop our reference here. */
-	dev_put(device);
-	return priv;
+	return netdev_priv(device);
 }
 
 

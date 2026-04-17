@@ -168,8 +168,21 @@ static void release_cfg_info(void)
 	num_fmans = 0;
 }
 
-#define CDX_MAX_DIST_PER_PORT		64
-#define CDX_MAX_FMANS			8
+/* Ioctl bounds derived from upstream architectural limits. All values
+ * match what the userspace fmc library's fmc_model_t can actually emit,
+ * and the LS1043 DPAA integration headers for the target hardware.
+ *
+ *   INTG_MAX_NUM_OF_FM        = 2   (LS1043 dpaa_integration_ext.h)
+ *   FMC_PORTS_PER_FMAN        = 16  (fmc.h — userspace array size)
+ *   FMC_SCHEMES_NUM           = 32  (fmc.h — max KG schemes per FMAN)
+ *   FMC_CC_NODES_NUM          = 512 (fmc.h — ccnode[] and htnode[] each;
+ *                                    num_tables = ccnode_count + htnode_count
+ *                                    so the combined upper bound is 2x this)
+ */
+#define CDX_MAX_FMANS			2
+#define CDX_MAX_PORTS_PER_FMAN		16
+#define CDX_MAX_DIST_PER_PORT		32
+#define CDX_MAX_TABLES_PER_FMAN		1024
 
 //allocate and copy distribution info from uspace
 static int get_dist_info(struct cdx_port_info *port_info)
@@ -284,7 +297,7 @@ static int get_port_info(struct cdx_fman_info *finfo)
 	DPA_INFO("%s::fm %d num ports %d\n", __FUNCTION__,
 			finfo->index, finfo->max_ports);
 #endif
-	if (finfo->max_ports == 0 || finfo->max_ports > MAX_PORTS_PER_FMAN) {
+	if (finfo->max_ports == 0 || finfo->max_ports > CDX_MAX_PORTS_PER_FMAN) {
 		DPA_ERROR("%s::max_ports %u out of range\n",
 				__FUNCTION__, finfo->max_ports);
 		return -EINVAL;
@@ -338,8 +351,6 @@ static int get_port_info(struct cdx_fman_info *finfo)
 	}
 	return 0;
 }	
-
-#define CDX_MAX_TABLES_PER_FMAN		256
 
 //allocate and copy cc table info from uspace
 static int get_cctbl_info(struct cdx_fman_info *finfo)

@@ -392,59 +392,64 @@ static int destroy_fwd_tx_fqs(struct dpa_iface_info *iface_info)
 }
 #endif /* endif for VOIP_PRIORITY_SLOW_PATH_FRAME_QUEUES */
 
+/* Returns a matching DPAA netdev with a reference held on success; the
+ * caller must dev_put() when done. Returns NULL if no match.
+ * The netdev list is iterated under RCU — required on 6.12 where the
+ * list can mutate concurrently. */
 struct net_device *find_osdev_by_fman_params(uint32_t fm_idx, uint32_t port_idx,
 		uint32_t speed)
 {
 	struct net_device *device;
-	struct dpa_priv_s *priv;	
+	struct dpa_priv_s *priv;
 	struct mac_device *macdev;
 
-	device = first_net_device(&init_net);
-	while(1) {
-		if (!device)
-			break;
-		if (device->type == ARPHRD_ETHER) {
-			t_LnxWrpFmDev *p_LnxWrpFmDev;
-			/* Only dereference netdev_priv() as dpa_priv_s on actual
-			 * DPAA netdevs. Non-DPAA ARPHRD_ETHER devices (bridges,
-			 * bonds, veth, etc.) have different private data layouts
-			 * — accessing them as dpa_priv_s crashes the kernel. */
-			if (!device->dev.parent || !device->dev.parent->driver)
-				goto next_device;
-			if (!strstr(device->dev.parent->driver->name, "dpa"))
-				goto next_device;
+	rcu_read_lock();
+	for_each_netdev_rcu(&init_net, device) {
+		if (device->type != ARPHRD_ETHER)
+			continue;
+		/* Only dereference netdev_priv() as dpa_priv_s on actual
+		 * DPAA netdevs. Non-DPAA ARPHRD_ETHER devices (bridges,
+		 * bonds, veth, etc.) have different private data layouts
+		 * — accessing them as dpa_priv_s crashes the kernel. */
+		if (!device->dev.parent || !device->dev.parent->driver)
+			continue;
+		if (!strstr(device->dev.parent->driver->name, "dpa"))
+			continue;
 
-			priv = netdev_priv(device);
-			macdev = priv->mac_dev;
-			if (macdev) {
-				p_LnxWrpFmDev = (t_LnxWrpFmDev*)macdev->fm;
-				if (speed == 10) {
-					//10 gig interfaces upports only SUPPORTED_10000baseT_Full
-					/*DGW board has 2 fixed-link interfaces
-						1 - (eth2)(xDSL)1G Fixed link interface linked to rgmii-txid
-						2 - eth5(G.fast)- 1G Fixed link interface linked to sgmii and
-						connected to 10G link of the board.
-						sgmii - considered as 1000baseT_Full and this has cell_index = 0*/
+		priv = netdev_priv(device);
+		macdev = priv->mac_dev;
+		if (!macdev)
+			continue;
+		{
+			t_LnxWrpFmDev *p_LnxWrpFmDev = (t_LnxWrpFmDev*)macdev->fm;
+			if (speed == 10) {
+				//10 gig interfaces upports only SUPPORTED_10000baseT_Full
+				/*DGW board has 2 fixed-link interfaces
+					1 - (eth2)(xDSL)1G Fixed link interface linked to rgmii-txid
+					2 - eth5(G.fast)- 1G Fixed link interface linked to sgmii and
+					connected to 10G link of the board.
+					sgmii - considered as 1000baseT_Full and this has cell_index = 0*/
 
-					if ( (!macdev->fixed_link) && (macdev->if_support != SUPPORTED_10000baseT_Full) )
-						goto next_device;
-				} else {
-					/* 1G search: skip 10G-only interfaces to prevent
-					 * false matches when cell_index overlaps between
-					 * 1G and 10G port types (SDK numbers them
-					 * independently within each type). */
-					if (macdev->max_speed == 10000)
-						goto next_device;
-				}
-				if ((fm_idx == p_LnxWrpFmDev->id) &&
-						(port_idx == macdev->cell_index))
-					return device;
+				if ((!macdev->fixed_link) && (macdev->if_support != SUPPORTED_10000baseT_Full))
+					continue;
+			} else {
+				/* 1G search: skip 10G-only interfaces to prevent
+				 * false matches when cell_index overlaps between
+				 * 1G and 10G port types (SDK numbers them
+				 * independently within each type). */
+				if (macdev->max_speed == 10000)
+					continue;
+			}
+			if ((fm_idx == p_LnxWrpFmDev->id) &&
+					(port_idx == macdev->cell_index)) {
+				dev_hold(device);
+				rcu_read_unlock();
+				return device;
 			}
 		}
-next_device:
-		device = next_net_device(device);
 	}
-	return device;
+	rcu_read_unlock();
+	return NULL;
 }
 
 
@@ -960,11 +965,10 @@ int dpa_get_iface_info_by_ipaddress(int sa_family, uint32_t  *daddr, uint32_t * 
 				struct in_ifaddr *if_info;
 
 				rcu_read_lock();
-				in_dev = (struct in_device *)(device->ip_ptr);
+				in_dev = rcu_dereference(device->ip_ptr);
 				if(in_dev)
 				{
-					if_info = in_dev->ifa_list;
-					for (;if_info;if_info= (struct in_ifaddr*)(if_info->ifa_next))
+					in_dev_for_each_ifa_rcu(if_info, in_dev)
 					{
 						if (if_info->ifa_local == *daddr)
 						{
@@ -992,7 +996,7 @@ int dpa_get_iface_info_by_ipaddress(int sa_family, uint32_t  *daddr, uint32_t * 
 				struct inet6_dev * inet6_device;
 				struct inet6_ifaddr *ifp;
 				rcu_read_lock();
-				inet6_device = (struct inet6_dev *) device->ip6_ptr;
+				inet6_device = rcu_dereference(device->ip6_ptr);
 				if(inet6_device)
 				{
 					read_lock_bh(&inet6_device->lock);

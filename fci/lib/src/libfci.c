@@ -384,14 +384,19 @@ static int __fci_cmd(FCI_CLIENT *this_client, unsigned short fcode, void *cmd_bu
 	fh->fcode = fcode;
 	fh->len = cmd_len;
 
-	/* Post the message to Netlink stack */	
+	/* Serialize request/response pairs against other threads sharing
+	 * this client. fci_catch() on a separate event client is fine; this
+	 * only prevents interleaving of command-socket traffic. */
+	pthread_mutex_lock(&this_client->cmd_mutex);
+
+	/* Post the message to Netlink stack */
 	rc = sendmsg(this_client->nl_sock_id, &msg, 0);
 	if (rc < 0)
 	{
 		FCILIB_PRINTF(FCILIB_ERR, "LIBFCI: sendto(%d) failed %s\n", this_client->nl_sock_id, strerror(errno));
-		
+
 		goto out;
-	}	
+	}
 
 	if (this_client->nl_type != NETLINK_KEY)
 	{
@@ -401,6 +406,7 @@ static int __fci_cmd(FCI_CLIENT *this_client, unsigned short fcode, void *cmd_bu
 		rc = 0;
 
 out:
+	pthread_mutex_unlock(&this_client->cmd_mutex);
 	return rc;
 }
 
@@ -451,6 +457,12 @@ static FCI_CLIENT *fci_create_client(int nl_type, unsigned long group)
 	}
 
 	memset(this_client, 0, sizeof(FCI_CLIENT));
+
+	if (pthread_mutex_init(&this_client->cmd_mutex, NULL) != 0) {
+		FCILIB_PRINTF(FCILIB_ERR, "LIBFCI: mutex init failed\n");
+		free(this_client);
+		goto err0;
+	}
 
 	/* open netlink socket for user space client */
 	socket_id = socket(AF_NETLINK, SOCK_RAW, nl_type);
@@ -537,6 +549,7 @@ err2:
 	close(this_client->nl_sock_id);
 
 err1:
+	pthread_mutex_destroy(&this_client->cmd_mutex);
 	free(this_client);
 
 err0:
@@ -551,9 +564,11 @@ err0:
 static int fci_destroy_client(FCI_CLIENT *this_client)
 {
 	FCILIB_PRINTF(FCILIB_CLOSE, "fci_destroy_client\n");
-	
+
 	/* closing netlink socket */
 	close(this_client->nl_sock_id);
+
+	pthread_mutex_destroy(&this_client->cmd_mutex);
 
 	free(this_client);
 

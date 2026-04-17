@@ -47,87 +47,80 @@ struct kernel_ucontext {
 };
 #endif
 
+/*
+ * Crash handler — must be async-signal-safe. Uses only write(), _exit(),
+ * and backtrace_symbols_fd() (the last is explicitly documented as safe,
+ * unlike backtrace_symbols() which calls malloc). snprintf is not
+ * strictly async-signal-safe per POSIX, but glibc's implementation with
+ * a fixed stack buffer does not malloc for integer formats we use here —
+ * accepting this pragmatic trade-off so we still get register state.
+ */
 static void cmm_crit_err_hdlr(int sig_num, siginfo_t *info, void *ucontext)
 {
+	char buf[512];
+	int len;
 #ifdef ARCH_ARM32
-	struct sigcontext *sigcontext;
+	struct sigcontext *sigcontext =
+		&((struct kernel_ucontext *)ucontext)->uc_mcontext;
 #else
-	mcontext_t *mctx;
+	mcontext_t *mctx = &((ucontext_t *)ucontext)->uc_mcontext;
 	int i;
 #endif
 #if defined(__GLIBC__) && !defined(__UCLIBC__)
 	void *array[50];
-	char **messages;
 	int size;
 #endif
 
 #ifdef ARCH_ARM32
-	sigcontext = &((struct kernel_ucontext *)ucontext)->uc_mcontext;
-
-	fprintf(stderr, "\n%s: signal %d (%s), fault address is %p at %p PID %d\n",
-		__func__, sig_num, strsignal(sig_num), info->si_addr,
-		(void *)sigcontext->arm_pc, getpid());
-
-	fprintf(stderr, "register dump:\nr0:%08lx r1:%08lx r2:%08lx r3:%08lx r4:%08lx r5:%08lx r6:%08lx r7:%08lx\n",
+	len = snprintf(buf, sizeof(buf),
+		"\ncmm_crit_err_hdlr: signal %d, fault addr %p at %p PID %d\n"
+		"r0:%08lx r1:%08lx r2:%08lx r3:%08lx\n"
+		"r4:%08lx r5:%08lx r6:%08lx r7:%08lx\n"
+		"r8:%08lx r9:%08lx r10:%08lx fp:%08lx\n"
+		"ip:%08lx sp:%08lx lr:%08lx pc:%08lx\n"
+		"cpsr:%08lx fault_address:%08lx\n",
+		sig_num, info->si_addr, (void *)sigcontext->arm_pc, getpid(),
 		sigcontext->arm_r0, sigcontext->arm_r1, sigcontext->arm_r2, sigcontext->arm_r3,
-		sigcontext->arm_r4, sigcontext->arm_r5, sigcontext->arm_r6, sigcontext->arm_r7);
-
-	fprintf(stderr, "r8:%08lx r9:%08lx r10:%08lx fp:%08lx ip:%08lx sp:%08lx lr:%08lx pc:%08lx\n",
+		sigcontext->arm_r4, sigcontext->arm_r5, sigcontext->arm_r6, sigcontext->arm_r7,
 		sigcontext->arm_r8, sigcontext->arm_r9, sigcontext->arm_r10, sigcontext->arm_fp,
-		sigcontext->arm_ip, sigcontext->arm_sp, sigcontext->arm_lr, sigcontext->arm_pc);
-
-	fprintf(stderr, "cpsr:%08lx fault_address:%08lx\n", sigcontext->arm_cpsr, sigcontext->fault_address);
+		sigcontext->arm_ip, sigcontext->arm_sp, sigcontext->arm_lr, sigcontext->arm_pc,
+		sigcontext->arm_cpsr, sigcontext->fault_address);
+	if (len > 0)
+		(void)write(STDERR_FILENO, buf, (size_t)len);
 #else
-	mctx = &((ucontext_t *)ucontext)->uc_mcontext;
+	len = snprintf(buf, sizeof(buf),
+		"\ncmm_crit_err_hdlr: signal %d, fault addr %p at %p PID %d\n",
+		sig_num, info->si_addr, (void *)mctx->pc, getpid());
+	if (len > 0)
+		(void)write(STDERR_FILENO, buf, (size_t)len);
 
-	fprintf(stderr, "\n%s: signal %d (%s), fault address is %p at %p PID %d\n",
-                __func__, sig_num, strsignal(sig_num), info->si_addr,
-                (void *)mctx->pc, getpid());
-
-	fprintf (stderr, "register dump:");
-	for (i = 0; i < 31; i++)
-	{
-		if (i%8 == 0)
-			fprintf(stderr, "\n");
-		fprintf(stderr, "r%d:%016llx", i, (unsigned long long)mctx->regs[i]);
+	for (i = 0; i < 31; i++) {
+		len = snprintf(buf, sizeof(buf), "r%d:%016llx%s",
+			i, (unsigned long long)mctx->regs[i],
+			((i % 4) == 3 || i == 30) ? "\n" : " ");
+		if (len > 0)
+			(void)write(STDERR_FILENO, buf, (size_t)len);
 	}
 
-        fprintf(stderr, "\npc:%016llx sp:%016llx fault_address:%016llx\n",
+	len = snprintf(buf, sizeof(buf),
+		"pc:%016llx sp:%016llx fault_address:%016llx\n",
 		(unsigned long long)mctx->pc, (unsigned long long)mctx->sp,
 		(unsigned long long)mctx->fault_address);
-
+	if (len > 0)
+		(void)write(STDERR_FILENO, buf, (size_t)len);
 #endif
 
 #if defined(__GLIBC__) && !defined(__UCLIBC__)
 	size = backtrace(array, 50);
-
 	/* overwrite sigaction with caller's address */
 #ifdef ARCH_ARM32
 	array[1] = (void *)sigcontext->arm_pc;
 #else
 	array[1] = (void *)mctx->pc;
 #endif
-
-	messages = backtrace_symbols(array, size);
-
-	if (messages)
-	{
-		for (i = 1; i < size; ++i)
-		{
-			fprintf(stderr, "[bt]: (%d) %s\n", i, messages[i]);
-		}
-
-		free(messages);
-	}
-	else
-	{
-		for (i = 1; i < size; ++i)
-		{
-			fprintf(stderr, "[bt]: (%d) %p\n", i, array[i]);
-		}
-	}
+	backtrace_symbols_fd(array, size, STDERR_FILENO);
 #endif
-	exit(EXIT_FAILURE);
+	_exit(EXIT_FAILURE);
 }
 
 

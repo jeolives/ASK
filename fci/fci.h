@@ -13,6 +13,8 @@
 #ifndef _FCI_H
 #define _FCI_H
 
+#include <linux/atomic.h>
+
 /*
 * Prototypes
 */
@@ -48,23 +50,23 @@ typedef struct t_FCI_MSG
 
 typedef struct t_FCI_SOCK_STATS
 {
-	unsigned long tx_msg;
-	unsigned long rx_msg;
-	unsigned long tx_msg_err;
-	unsigned long rx_msg_err;
+	atomic_long_t tx_msg;
+	atomic_long_t rx_msg;
+	atomic_long_t tx_msg_err;
+	atomic_long_t rx_msg_err;
 } FCI_SOCK_STATS;
 
 
 typedef struct t_FCI_STATS
 {
-	/* Globlas Statistics*/
-	unsigned long tx_msg;
-	unsigned long rx_msg;
-	unsigned long tx_msg_err;
-	unsigned long rx_msg_err;
-	unsigned long mem_alloc_err;
-	unsigned long kernel_create_err;
-	unsigned long unknown_sock_type;
+	/* Globals Statistics*/
+	atomic_long_t tx_msg;
+	atomic_long_t rx_msg;
+	atomic_long_t tx_msg_err;
+	atomic_long_t rx_msg_err;
+	atomic_long_t mem_alloc_err;
+	atomic_long_t kernel_create_err;
+	atomic_long_t unknown_sock_type;
 	/* Per socket type statistics*/
 	FCI_SOCK_STATS sock_stats[FCI_MAX_PROTO];
 } FCI_STATS;

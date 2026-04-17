@@ -710,8 +710,9 @@ int cmmRxQueryProcess(char ** keywords, int tabStart, daemon_handle_t daemon_han
 	if(TEST_CMD_BIT(cmdToSend, FPP_CMD_RX_L2BRIDGE_QUERY_STATUS))
 	{
 		int count = 0;
-		char input_interface[IFNAMSIZ];
-		char output_interface[IFNAMSIZ];
+		/* Buffer size includes room for ".<svlan>.<cvlan>" suffix (up to 12 chars). */
+		char input_interface[IFNAMSIZ + 16];
+		char output_interface[IFNAMSIZ + 16];
 		char pkt_priority[16];
 		char svlan_priority[16];
 		char cvlan_priority[16];
@@ -753,25 +754,37 @@ int cmmRxQueryProcess(char ** keywords, int tabStart, daemon_handle_t daemon_han
 			}
 			if (pEntryResponse->eof)
 			    	break;
-			if (pEntryResponse->input_interface >= GEM_PORTS)
-				strcpy(input_interface, pEntryResponse->input_name);	
-			else	
+			if (pEntryResponse->input_interface >= GEM_PORTS) {
+				strscpy(input_interface, pEntryResponse->input_name, IFNAMSIZ);
+			} else {
 				get_port_name(pEntryResponse->input_interface, input_interface, IFNAMSIZ);
-			
-			if ((pEntryResponse->input_svlan != 0xFFFF) && (pEntryResponse->input_cvlan != 0xFFFF))
-				sprintf(input_interface + strlen(input_interface), ".%d.%d", pEntryResponse->input_svlan, pEntryResponse->input_cvlan);
-			else if (pEntryResponse->input_svlan != 0xFFFF)
-				sprintf(input_interface + strlen(input_interface), ".%d", pEntryResponse->input_svlan);
+			}
+			{
+				size_t off = strnlen(input_interface, IFNAMSIZ);
+				if (off >= IFNAMSIZ) off = IFNAMSIZ - 1;
+				if ((pEntryResponse->input_svlan != 0xFFFF) && (pEntryResponse->input_cvlan != 0xFFFF))
+					snprintf(input_interface + off, sizeof(input_interface) - off,
+						 ".%d.%d", pEntryResponse->input_svlan, pEntryResponse->input_cvlan);
+				else if (pEntryResponse->input_svlan != 0xFFFF)
+					snprintf(input_interface + off, sizeof(input_interface) - off,
+						 ".%d", pEntryResponse->input_svlan);
+			}
 
-			if (pEntryResponse->output_interface >= GEM_PORTS)
-				strcpy(output_interface, pEntryResponse->output_name);	
-			else	
+			if (pEntryResponse->output_interface >= GEM_PORTS) {
+				strscpy(output_interface, pEntryResponse->output_name, IFNAMSIZ);
+			} else {
 				get_port_name(pEntryResponse->output_interface, output_interface, IFNAMSIZ);
-			
-			if ((pEntryResponse->output_svlan != 0xFFFF) && (pEntryResponse->output_cvlan != 0xFFFF))
-				sprintf(output_interface + strlen(output_interface), ".%d.%d", pEntryResponse->output_svlan, pEntryResponse->output_cvlan);
-			else if (pEntryResponse->output_svlan != 0xFFFF)
-				sprintf(output_interface + strlen(output_interface), ".%d", pEntryResponse->output_svlan);
+			}
+			{
+				size_t off = strnlen(output_interface, IFNAMSIZ);
+				if (off >= IFNAMSIZ) off = IFNAMSIZ - 1;
+				if ((pEntryResponse->output_svlan != 0xFFFF) && (pEntryResponse->output_cvlan != 0xFFFF))
+					snprintf(output_interface + off, sizeof(output_interface) - off,
+						 ".%d.%d", pEntryResponse->output_svlan, pEntryResponse->output_cvlan);
+				else if (pEntryResponse->output_svlan != 0xFFFF)
+					snprintf(output_interface + off, sizeof(output_interface) - off,
+						 ".%d", pEntryResponse->output_svlan);
+			}
 
 			if (pEntryResponse->pkt_priority == 0x8000)
 				strcpy(pkt_priority, "vlan");

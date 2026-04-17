@@ -453,7 +453,7 @@ static int get_eth_iface_info(struct dpa_iface_info *iface_info,
 	//set as ethernet interface
 	iface_info->if_flags = (IF_TYPE_ETHERNET | IF_TYPE_PHYSICAL);
 	//copy name
-	strncpy(iface_info->name, name, IF_NAME_SIZE);
+	strscpy(iface_info->name, name, IF_NAME_SIZE);
 	iface_info->name[IF_NAME_SIZE - 1] = '\0';
 	//iface mtu
 	iface_info->mtu = device->mtu;
@@ -519,6 +519,8 @@ static int get_eth_iface_info(struct dpa_iface_info *iface_info,
 	eth_info->num_pools = (int)priv->bp_count;
 	if (eth_info->num_pools > MAX_PORT_BMAN_POOLS) {
 		DPA_ERROR("%s::invalid num pools value\n", __FUNCTION__);
+		dev_put(device);
+		eth_info->net_dev = NULL;
 		return FAILURE;
 	}
 	bp = priv->dpa_bp;
@@ -535,11 +537,13 @@ static int get_eth_iface_info(struct dpa_iface_info *iface_info,
 		eth_info->eth_tx_fqinfo[ii].num_fqs = 1;
 	}
 	//get channel and workqueue to be use for transmit
-	if (dpa_get_tx_chnl_info(eth_info->eth_tx_fqinfo[0].fq_base, 
-				&eth_info->tx_channel_id, 
+	if (dpa_get_tx_chnl_info(eth_info->eth_tx_fqinfo[0].fq_base,
+				&eth_info->tx_channel_id,
 				&eth_info->tx_wq)) {
-		DPA_ERROR("%s::dpa_get_tx_chnl_info failed\n", 
+		DPA_ERROR("%s::dpa_get_tx_chnl_info failed\n",
 				__FUNCTION__);
+		dev_put(device);
+		eth_info->net_dev = NULL;
 		return FAILURE;
 	}
 	return SUCCESS;
@@ -2139,7 +2143,7 @@ int dpa_add_pppoe_if(char *name, struct _itf *itf, struct _itf *phys_itf,
 	memset(iface_info, 0, sizeof(struct dpa_iface_info));
 	iface_info->itf_id = itf->index;
 	iface_info->if_flags = itf->type;
-	strncpy(&iface_info->name[0], name, IF_NAME_SIZE);
+	strscpy(&iface_info->name[0], name, IF_NAME_SIZE);
 
 	iface_info->pppoe_info.session_id = htons(session_id);
 	memcpy(&iface_info->pppoe_info.mac_addr[0], mac_addr, ETH_ALEN);
@@ -2214,7 +2218,7 @@ int dpa_add_vlan_if(char *name, struct _itf *itf, struct _itf *phys_itf, uint16_
 	memset(iface_info, 0, sizeof(struct dpa_iface_info));
 	iface_info->itf_id = itf->index;
 	iface_info->if_flags = itf->type;
-	strncpy(&iface_info->name[0], name, IF_NAME_SIZE);
+	strscpy(&iface_info->name[0], name, IF_NAME_SIZE);
 
 	iface_info->vlan_info.vlan_id = htons(vlan_id);
 	memcpy(iface_info->vlan_info.mac_addr, mac, ETH_ALEN);
@@ -2299,7 +2303,7 @@ int dpa_add_wlan_if(char *name, struct _itf *itf, uint32_t vap_id, unsigned char
 	memset(iface_info, 0, sizeof(struct dpa_iface_info));
 	iface_info->itf_id = itf->index;
 	iface_info->if_flags = itf->type;
-	strncpy(&iface_info->name[0], name, IF_NAME_SIZE);
+	strscpy(&iface_info->name[0], name, IF_NAME_SIZE);
 	iface_info->wlan_info.vap_id = vap_id;
 	memcpy(&iface_info->wlan_info.mac_addr[0], mac, ETH_ALEN); 
 	get_wlan_iface_info(iface_info);
@@ -2545,7 +2549,7 @@ int dpa_add_tunnel_if(itf_t *itf, itf_t *phys_itf, PTnlEntry pTunnelEntry)
 	memset(iface_info, 0, sizeof(struct dpa_iface_info));
 	iface_info->itf_id = itf->index;
 	iface_info->if_flags = itf->type;
-	strncpy(iface_info->name, pTunnelEntry->tnl_name, IF_NAME_SIZE);
+	strscpy(iface_info->name, pTunnelEntry->tnl_name, IF_NAME_SIZE);
 	iface_info->name[IF_NAME_SIZE - 1] = '\0';
 
 	iface_info->tunnel_info.mode = pTunnelEntry->mode;
@@ -2854,6 +2858,10 @@ struct dpa_priv_s* get_eth_priv(unsigned char* name)
 		return NULL;
 	}
 	priv = netdev_priv(device);
+	/* The returned priv points into the netdev's allocation, which is
+	 * kept alive by the underlying DPAA eth driver for the lifetime of
+	 * this module, so it is safe to drop our reference here. */
+	dev_put(device);
 	return priv;
 }
 

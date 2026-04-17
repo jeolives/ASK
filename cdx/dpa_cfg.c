@@ -638,17 +638,21 @@ int cdx_ioc_set_dpa_params(unsigned long args)
 		retval = -EIO;
 		goto err_ret;
 	}
-	//init the fman handles 
+	//init the fman handles
 	finfo = fman_info;
 	for (ii = 0; ii < num_fmans; ii++) {
-		if (cdxdrv_get_fman_handles(finfo))
-			return -1;
+		if (cdxdrv_get_fman_handles(finfo)) {
+			retval = -EIO;
+			goto err_ret;
+		}
 		finfo++;
 	}
 	finfo = fman_info;
 	//init interface stats module
-	if (cdxdrv_init_stats(finfo->muram_handle))
-		return -1;
+	if (cdxdrv_init_stats(finfo->muram_handle)) {
+		retval = -EIO;
+		goto err_ret;
+	}
 
 	for (ii = 0; ii < num_fmans; ii++) {
 		//get port info
@@ -703,8 +707,10 @@ int cdx_ioc_set_dpa_params(unsigned long args)
 		finfo++;
 	}
 
-	if (cdx_create_port_fqs())
-		return -1;
+	if (cdx_create_port_fqs()) {
+		retval = -EIO;
+		goto err_ret;
+	}
 	//create cp rate limit policier profiles
 	if (cdxdrv_create_missaction_policer_profiles(fman_info)) {
 		goto err_ret;

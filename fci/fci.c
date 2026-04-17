@@ -52,13 +52,13 @@ static int fci_open_netlink(int proto)
 	};
 
 	if (proto != FCI_NL_FF) {
-		this_fci->stats.unknown_sock_type++;
+		atomic_long_inc(&this_fci->stats.unknown_sock_type);
 		return -ESOCKTNOSUPPORT;
 	}
 
 	this_fci->fci_nl_sock[FCI_NL_FF] = netlink_kernel_create(&init_net, NETLINK_FF, &cfg);
 	if (!this_fci->fci_nl_sock[FCI_NL_FF]) {
-		this_fci->stats.kernel_create_err++;
+		atomic_long_inc(&this_fci->stats.kernel_create_err);
 		return -ENOMEM;
 	}
 	return 0;
@@ -82,8 +82,8 @@ static void fci_outbound_unicast(int nl_type, struct sk_buff *skb, u32 pid)
 
 	netlink_unicast(this_fci->fci_nl_sock[nl_type], skb, pid, MSG_DONTWAIT);
 
-	this_fci->stats.tx_msg++;
-	this_fci->stats.sock_stats[nl_type].tx_msg++;
+	atomic_long_inc(&this_fci->stats.tx_msg);
+	atomic_long_inc(&this_fci->stats.sock_stats[nl_type].tx_msg);
 }
 
 /*
@@ -108,13 +108,13 @@ static int fci_outbound_multicast(int nl_type, struct sk_buff *skb, int group)
 		kfree_skb(skb);
 	}
 
-	this_fci->stats.tx_msg++;
-	this_fci->stats.sock_stats[nl_type].tx_msg++;
+	atomic_long_inc(&this_fci->stats.tx_msg);
+	atomic_long_inc(&this_fci->stats.sock_stats[nl_type].tx_msg);
 	return 0;
 
 err_exit:
-	this_fci->stats.tx_msg_err++;
-	this_fci->stats.sock_stats[nl_type].tx_msg_err++;
+	atomic_long_inc(&this_fci->stats.tx_msg_err);
+	atomic_long_inc(&this_fci->stats.sock_stats[nl_type].tx_msg_err);
 	return rc;
 }
 
@@ -139,8 +139,8 @@ static void fci_outbound_err(int nl_type, struct sk_buff *skb, u32 pid,
 
 	netlink_unicast(this_fci->fci_nl_sock[nl_type], skb, pid, MSG_DONTWAIT);
 
-	this_fci->stats.tx_msg++;
-	this_fci->stats.sock_stats[nl_type].tx_msg++;
+	atomic_long_inc(&this_fci->stats.tx_msg);
+	atomic_long_inc(&this_fci->stats.sock_stats[nl_type].tx_msg);
 }
 
 /****************************** Fast Forward Support ********************************/
@@ -197,7 +197,7 @@ static struct sk_buff *fci_alloc_msg(void)
 
 	skb = nlmsg_new(FCI_MSG_SIZE, flags);
 	if (!skb) {
-		this_fci->stats.mem_alloc_err++;
+		atomic_long_inc(&this_fci->stats.mem_alloc_err);
 		return NULL;
 	}
 	return skb;
@@ -215,20 +215,20 @@ static int fci_outbound_fe_data(u16 fcode, u16 len, u16 *payload)
 	if (len > FCI_MSG_MAX_PAYLOAD) {
 		if (printk_ratelimit())
 			pr_err("FPP payload %u exceeds max %u\n", len, FCI_MSG_MAX_PAYLOAD);
-		this_fci->stats.rx_msg_err++;
+		atomic_long_inc(&this_fci->stats.rx_msg_err);
 		return -EMSGSIZE;
 	}
 
 	skb = fci_alloc_msg();
 	if (!skb) {
-		this_fci->stats.rx_msg_err++;
+		atomic_long_inc(&this_fci->stats.rx_msg_err);
 		return -ENOMEM;
 	}
 
 	nlh = nlmsg_put(skb, 0, 0, 0, len + FCI_MSG_HDR_SIZE, 0);
 	if (!nlh) {
 		kfree_skb(skb);
-		this_fci->stats.rx_msg_err++;
+		atomic_long_inc(&this_fci->stats.rx_msg_err);
 		return -EMSGSIZE;
 	}
 
@@ -253,14 +253,14 @@ static void __fci_fe_inbound_data(struct sk_buff *skb)
 
 	/* Limit direct FPP access to privileged callers. */
 	if (!netlink_capable(skb, CAP_NET_ADMIN)) {
-		this_fci->stats.rx_msg_err++;
+		atomic_long_inc(&this_fci->stats.rx_msg_err);
 		return;
 	}
 
 	/* Basic skb sanity: header + full FCI_MSG header must fit. */
 	if (!NLMSG_OK(nlh, skb->len) ||
 	    nlh->nlmsg_len < NLMSG_LENGTH(FCI_MSG_HDR_SIZE)) {
-		this_fci->stats.rx_msg_err++;
+		atomic_long_inc(&this_fci->stats.rx_msg_err);
 		return;
 	}
 
@@ -269,16 +269,16 @@ static void __fci_fe_inbound_data(struct sk_buff *skb)
 	/* Ensure the declared payload length actually fits in the skb. */
 	if (fci_msg->length > FCI_MSG_MAX_PAYLOAD ||
 	    nlh->nlmsg_len < NLMSG_LENGTH(FCI_MSG_HDR_SIZE + fci_msg->length)) {
-		this_fci->stats.rx_msg_err++;
+		atomic_long_inc(&this_fci->stats.rx_msg_err);
 		return;
 	}
 
-	this_fci->stats.rx_msg++;
-	this_fci->stats.sock_stats[FCI_NL_FF].rx_msg++;
+	atomic_long_inc(&this_fci->stats.rx_msg);
+	atomic_long_inc(&this_fci->stats.sock_stats[FCI_NL_FF].rx_msg);
 
 	nskb = fci_alloc_msg();
 	if (!nskb) {
-		this_fci->stats.rx_msg_err++;
+		atomic_long_inc(&this_fci->stats.rx_msg_err);
 		return;
 	}
 
@@ -289,7 +289,7 @@ static void __fci_fe_inbound_data(struct sk_buff *skb)
 	if (rc < 0) {
 		nlmsg_cancel(nskb, rep);
 		fci_outbound_err(FCI_NL_FF, nskb, NETLINK_CB(skb).portid, nlh, rc);
-		this_fci->stats.rx_msg_err++;
+		atomic_long_inc(&this_fci->stats.rx_msg_err);
 	} else {
 		skb_put(nskb, FCI_MSG_HDR_SIZE + fci_rep->length);
 		nlmsg_end(nskb, rep);
@@ -317,21 +317,21 @@ static int fci_fe_inbound_parser(FCI_MSG *fci_msg, FCI_MSG *fci_rep)
 static int fci_proc_show(struct seq_file *m, void *v)
 {
 	seq_printf(m, "\nFCI Messages:\n");
-	seq_printf(m, "Sent:%lu\n", this_fci->stats.tx_msg);
-	seq_printf(m, "Received:%lu\n", this_fci->stats.rx_msg);
-	seq_printf(m, "Sent errors:%lu\n", this_fci->stats.tx_msg_err);
-	seq_printf(m, "Received errors:%lu\n", this_fci->stats.rx_msg_err);
+	seq_printf(m, "Sent:%lu\n", atomic_long_read(&this_fci->stats.tx_msg));
+	seq_printf(m, "Received:%lu\n", atomic_long_read(&this_fci->stats.rx_msg));
+	seq_printf(m, "Sent errors:%lu\n", atomic_long_read(&this_fci->stats.tx_msg_err));
+	seq_printf(m, "Received errors:%lu\n", atomic_long_read(&this_fci->stats.rx_msg_err));
 
 	seq_printf(m, "\nFast Forward Messages:\n");
-	seq_printf(m, "Sent:%lu\n", this_fci->stats.sock_stats[FCI_NL_FF].tx_msg);
-	seq_printf(m, "Received:%lu\n", this_fci->stats.sock_stats[FCI_NL_FF].rx_msg);
-	seq_printf(m, "Sent errors:%lu\n", this_fci->stats.sock_stats[FCI_NL_FF].tx_msg_err);
-	seq_printf(m, "Received errors:%lu\n", this_fci->stats.sock_stats[FCI_NL_FF].rx_msg_err);
+	seq_printf(m, "Sent:%lu\n", atomic_long_read(&this_fci->stats.sock_stats[FCI_NL_FF].tx_msg));
+	seq_printf(m, "Received:%lu\n", atomic_long_read(&this_fci->stats.sock_stats[FCI_NL_FF].rx_msg));
+	seq_printf(m, "Sent errors:%lu\n", atomic_long_read(&this_fci->stats.sock_stats[FCI_NL_FF].tx_msg_err));
+	seq_printf(m, "Received errors:%lu\n", atomic_long_read(&this_fci->stats.sock_stats[FCI_NL_FF].rx_msg_err));
 
 	seq_printf(m, "\nErrors:\n");
-	seq_printf(m, "Memory allocation errors:%lu\n", this_fci->stats.mem_alloc_err);
-	seq_printf(m, "Kernel socket creation errors:%lu\n", this_fci->stats.kernel_create_err);
-	seq_printf(m, "Unknown socket type:%lu\n", this_fci->stats.unknown_sock_type);
+	seq_printf(m, "Memory allocation errors:%lu\n", atomic_long_read(&this_fci->stats.mem_alloc_err));
+	seq_printf(m, "Kernel socket creation errors:%lu\n", atomic_long_read(&this_fci->stats.kernel_create_err));
+	seq_printf(m, "Unknown socket type:%lu\n", atomic_long_read(&this_fci->stats.unknown_sock_type));
 	return 0;
 }
 

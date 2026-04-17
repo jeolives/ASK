@@ -199,10 +199,140 @@ int cmmQmQueryProcess(char **keywords, int tabStart, daemon_handle_t daemon_hand
 
 int cmmQmIngressQueryProcess(char **keywords, int tabStart, daemon_handle_t daemon_handle)
 {
+#ifdef ENABLE_INGRESS_QOS
+	int rcvBytes;
+	int cpt = tabStart;
+	union u_rxbuf rxbuf;
+	uint32_t ii;
+	short rc;
+
+	if(!keywords[cpt])
+		goto help;
+
+	if(strcasecmp(keywords[cpt], "stats") == 0) {
+		fpp_qm_ingress_plcr_query_stats_cmd_t *query;
+		struct fpp_qm_ingress_policer_info *pstats;
+
+		query = (fpp_qm_ingress_plcr_query_stats_cmd_t *)rxbuf.rcvBuffer;
+		memset(query, 0, sizeof(fpp_qm_ingress_plcr_query_stats_cmd_t));
+
+		cpt++;
+		if((keywords[cpt])) {
+			if(strcasecmp(keywords[cpt], "clear") == 0)
+				query->clear = 1;
+		}
+		rcvBytes = cmmSendToDaemon(daemon_handle, FPP_CMD_QM_INGRESS_POLICER_QUERY_STATS,
+						query, sizeof(fpp_qm_ingress_plcr_query_stats_cmd_t), rxbuf.rcvBuffer);
+
+		if (rcvBytes != (sizeof(struct fpp_qm_ingress_policer_info) * FPP_NUM_INGRESS_POLICER_QUEUES)) {
+			rc = (rcvBytes < sizeof(unsigned short) ) ? 0 : rxbuf.result;
+			cmm_print(DEBUG_STDERR, "ERROR: Unexpected result returned from FPP rc:%d bytes %d\n", rc,
+				rcvBytes);
+			return CLI_OK;
+		}
+		for(ii = 0; ii< FPP_NUM_INGRESS_POLICER_QUEUES; ii++) {
+			pstats = &query->policer_stats[ii];
+			if(pstats->policer_on) {
+				cmm_print(DEBUG_STDOUT, "Ingress QOS info Queue No:%d::\n", ii);
+				cmm_print(DEBUG_STDOUT,"\n");
+				cmm_print(DEBUG_STDOUT, "Policer Enabled\n");
+
+				/* display policer stats */
+				cmm_print(DEBUG_STDOUT, "cir              : %u\n", pstats->cir);
+				cmm_print(DEBUG_STDOUT, "pir              : %u\n", pstats->pir);
+				cmm_print(DEBUG_STDOUT, "Total green pkts : %u\n", pstats->counterval[GREEN_TOTAL]);
+				cmm_print(DEBUG_STDOUT, "Total yellow pkts: %u\n", pstats->counterval[YELLOW_TOTAL]);
+				cmm_print(DEBUG_STDOUT, "Total red pkts   : %u\n", pstats->counterval[RED_TOTAL]);
+				cmm_print(DEBUG_STDOUT, "Total recoloured yellow pkts : %u\n", pstats->counterval[YELLOW_RECOLORED]);
+				cmm_print(DEBUG_STDOUT, "Total recoloured red pkts    :  %u\n", pstats->counterval[RED_RECOLORED]);
+				cmm_print(DEBUG_STDOUT,"\n\n");
+			}
+			else {
+				cmm_print(DEBUG_STDOUT, "Policer is disabled on Queue No  : %d\n",ii);
+				cmm_print(DEBUG_STDOUT, "cir              : %u\n", pstats->cir);
+				cmm_print(DEBUG_STDOUT, "pir              : %u\n", pstats->pir);
+				cmm_print(DEBUG_STDOUT,"\n\n");
+				continue;
+			}
+		}
+	}
+	else
+		goto help;
+
+	return CLI_OK;
+help:
+	{
+		cmm_print(DEBUG_STDOUT, "Usage: query qmingress stats {clear}\n");
+	}
+#else
 		cmm_print(DEBUG_STDOUT, "Ingress Qos support disabled\n");
+#endif
 	return CLI_OK;
 }
 
+#ifdef SEC_PROFILE_SUPPORT
+int cmmQmSecQueryProcess(char **keywords, int tabStart, daemon_handle_t daemon_handle)
+{
+#ifdef ENABLE_INGRESS_QOS
+	int rcvBytes;
+	int cpt = tabStart;
+	union u_rxbuf rxbuf;
+	short rc;
+
+	if(!keywords[cpt])
+		goto help;
+
+	if(strcasecmp(keywords[cpt], "stats") == 0) {
+		fpp_qm_sec_plcr_query_stats_cmd_t *query;
+		struct fpp_qm_ingress_policer_info *pstats;
+
+		query = (fpp_qm_sec_plcr_query_stats_cmd_t *)rxbuf.rcvBuffer;
+		memset(query, 0, sizeof(*query));
+
+		cpt++;
+		if((keywords[cpt])) {
+			if(strcasecmp(keywords[cpt], "clear") == 0)
+				query->clear = 1;
+		}
+		rcvBytes = cmmSendToDaemon(daemon_handle, FPP_CMD_QM_QUERY_SEC_POLICERRATE,
+						query, sizeof(fpp_qm_sec_plcr_query_stats_cmd_t), rxbuf.rcvBuffer);
+
+		if (rcvBytes != (sizeof(struct fpp_qm_ingress_policer_info))) {
+			rc = (rcvBytes < sizeof(unsigned short) ) ? 0 : rxbuf.result;
+			cmm_print(DEBUG_STDERR, "ERROR: Unexpected result returned from FPP rc:%d bytes %d \n", rc,
+				rcvBytes);
+			return CLI_OK;
+		}
+		pstats = &query->policer_stats;
+		cmm_print(DEBUG_STDOUT, "Sec policer QOS info::\n");
+		cmm_print(DEBUG_STDOUT,"\n");
+
+		/* display policer stats */
+		cmm_print(DEBUG_STDOUT, "cir              : %u\n", pstats->cir);
+		cmm_print(DEBUG_STDOUT, "pir              : %u\n", pstats->pir);
+		cmm_print(DEBUG_STDOUT, "cbs              : %u\n", pstats->cbs);
+		cmm_print(DEBUG_STDOUT, "pbs              : %u\n", pstats->pbs);
+		cmm_print(DEBUG_STDOUT, "Total green pkts : %u\n", pstats->counterval[GREEN_TOTAL]);
+		cmm_print(DEBUG_STDOUT, "Total yellow pkts: %u\n", pstats->counterval[YELLOW_TOTAL]);
+		cmm_print(DEBUG_STDOUT, "Total red pkts   : %u\n", pstats->counterval[RED_TOTAL]);
+		cmm_print(DEBUG_STDOUT, "Total recoloured yellow pkts : %u\n", pstats->counterval[YELLOW_RECOLORED]);
+		cmm_print(DEBUG_STDOUT, "Total recoloured red pkts    :  %u\n", pstats->counterval[RED_RECOLORED]);
+		cmm_print(DEBUG_STDOUT,"\n\n");
+	}
+	else
+		goto help;
+
+	return CLI_OK;
+help:
+	{
+		cmm_print(DEBUG_STDOUT, "Usage: query qmsecrate stats {clear}\n");
+	}
+#else
+	cmm_print(DEBUG_STDOUT, "Sec profile Qos support disabled\n");
+#endif
+	return CLI_OK;
+}
+#endif /* endif for SEC_PROFILE_SUPPORT */
 
 
 /************************************************************
@@ -227,6 +357,10 @@ void cmmQmSetPrintHelp(void)
                 "\n"
                 "	set qm ff_rate portname [cir {%d - %d}] [pir {%d - %d}]\n"
                 "\n"
+#ifdef SEC_PROFILE_SUPPORT
+                "	set qm sec_rate [cir {%d - %d}] [pir {%d - %d}] [cbs {%d - %d}] [pbs {%d - %d}]\n"
+                "	set qm sec_rate reset\n"
+#endif /* endif for SEC_PROFILE_SUPPORT */
                 "\n"
                 "	set qm ingress queue <0-7> policer [on | off]\n"
                 "	set qm ingress queue <1-7> [cir {1 - 20971250}] [pir {1 - 20971250}]\n"
@@ -237,6 +371,12 @@ void cmmQmSetPrintHelp(void)
 		QM_EXPTRATE_MINVAL, QM_EXPTRATE_MAXVAL, QM_EXPTRATE_MIN_BS, QM_EXPTRATE_MAX_BS, 
 		QM_FFRATE_MIN_CIR, QM_FFRATE_MAX_CIR,
 		QM_FFRATE_MIN_PIR, QM_FFRATE_MAX_PIR
+#ifdef SEC_PROFILE_SUPPORT
+		, QM_SECRATE_MIN_CIR, QM_SECRATE_MAX_CIR,
+		QM_SECRATE_MIN_PIR, QM_SECRATE_MAX_PIR,
+		QM_SECRATE_MIN_CBS, QM_SECRATE_MAX_CBS,
+		QM_SECRATE_MIN_PBS, QM_SECRATE_MAX_PBS
+#endif /* endif for SEC_PROFILE_SUPPORT */
 		);
 }
 #else
@@ -441,6 +581,284 @@ static int qm_ffrate_cfg(char **keywords, int cpt, daemon_handle_t daemon_handle
 	return QM_SUCCESS;
 }
 
+#ifdef ENABLE_INGRESS_QOS
+static int qm_ingress_policer_cfg(char **keywords, int *pcpt, daemon_handle_t daemon_handle)
+{
+	int queue_no;
+	int cpt;
+	unsigned int tmp;
+	char * endptr;
+	union u_rxbuf rxbuf;
+	fpp_qm_ingress_policer_cfg_cmd_t policerCfgcmd;
+
+	cpt = *pcpt;
+
+	if(!keywords[++cpt])
+                goto help;
+
+	if(strcasecmp(keywords[cpt], "queue") == 0)
+	{
+		if(!keywords[++cpt])
+			goto help;
+
+		if(strcasecmp(keywords[cpt], "default") == 0)
+			queue_no = 0;
+		else {
+			/*Get an integer from the string*/
+			endptr = NULL;
+			tmp = strtoul(keywords[cpt], &endptr, 0);
+			if ((keywords[cpt] == endptr) || ( tmp > FPP_NUM_INGRESS_POLICER_QUEUES -1)) {
+				cmm_print(DEBUG_STDERR, "queue ERROR: selected queue must be a number between 0 and %d\n", (FPP_NUM_INGRESS_POLICER_QUEUES-1));
+				goto help;
+			}
+			queue_no = tmp;
+		}
+
+		if(!keywords[++cpt])
+			goto help;
+
+		if(strcasecmp(keywords[cpt], "policer") == 0)
+		{
+			fpp_qm_ingress_policer_enable_cmd_t enableCmd;
+			memset(&enableCmd, 0, sizeof(enableCmd));
+			/* handle Ingress Qos enable or disable on queue */
+			if(!keywords[++cpt])
+				goto help;
+
+			if(strcasecmp(keywords[cpt], "on") == 0)
+				enableCmd.enable_flag = 1;
+			 else {
+				if(strcasecmp(keywords[cpt], "off") == 0)  {
+					enableCmd.enable_flag = 0;
+				}
+				else
+					goto help;
+			}
+			enableCmd.queue_no = queue_no;
+
+			/* Send CMD_QM_QOSENABLE command */
+			if(cmmSendToDaemon(daemon_handle, FPP_CMD_QM_INGRESS_POLICER_ENABLE, &enableCmd,
+						sizeof(fpp_qm_ingress_policer_enable_cmd_t),
+						&rxbuf.rcvBuffer) == 2) {
+
+				if (rxbuf.result != 0) {
+					showErrorMsg("CMD_QM_INGRESS_POLICER_ENABLE", ERRMSG_SOURCE_FPP, rxbuf.rcvBuffer);
+					cmm_print(DEBUG_ERROR, "Enable/Disable operation unsuccessful\n");
+				}
+				else
+					cmm_print(DEBUG_STDOUT, "policer enable/disable operation successful on queue_no %u\n",enableCmd.queue_no);
+			}
+			return QM_SUCCESS;
+		}
+		else {
+			memset(&policerCfgcmd, 0, sizeof(policerCfgcmd));
+
+			if(strcasecmp(keywords[cpt], "cir") == 0) {
+
+				if(!keywords[++cpt])
+					goto help;
+
+				/*Get an integer from the string*/
+				endptr = NULL;
+				tmp = strtoul(keywords[cpt], &endptr, 0);
+				if ((keywords[cpt] == endptr) || ((tmp < QM_INGRESS_MIN_CIR) || (tmp > QM_INGRESS_MAX_CIR)))
+				{
+					cmm_print(DEBUG_CRIT, "CMD_QM_INGRESS_POLICER_CFG ERROR: invalid cir rate\n");
+					goto help;
+				}
+				policerCfgcmd.cir = tmp;
+			}
+			if(!keywords[++cpt])
+				goto help;
+
+			if(strcasecmp(keywords[cpt], "pir") == 0) {
+
+				if(!keywords[++cpt])
+					goto help;
+
+				/*Get an integer from the string*/
+				endptr = NULL;
+				tmp = strtoul(keywords[cpt], &endptr, 0);
+				if ((keywords[cpt] == endptr) || ((tmp < QM_INGRESS_MIN_PIR) || (tmp > QM_INGRESS_MAX_PIR))) {
+					cmm_print(DEBUG_CRIT, "CMD_QM_INGRESS_POLICER_CFG ERROR: invalid pir rate pir %u\n",tmp);
+					goto help;
+				}
+				if ( tmp < policerCfgcmd.cir) {
+					cmm_print(DEBUG_CRIT, "CMD_QM_INGRESS_POLICER_CFG  ERROR: pir < cir\n");
+					goto help;
+				}
+				policerCfgcmd.pir = tmp;
+			}
+			policerCfgcmd.queue_no = queue_no;
+
+			/* Send CMD_QM_QOSENABLE command */
+			if(cmmSendToDaemon(daemon_handle, FPP_CMD_QM_INGRESS_POLICER_CONFIG, &policerCfgcmd,
+						sizeof(fpp_qm_ingress_policer_cfg_cmd_t),
+						rxbuf.rcvBuffer) == 2) {
+				if (rxbuf.result != 0) {
+					showErrorMsg("CMD_QM_INGRESS_POLICER_CONFIG", ERRMSG_SOURCE_FPP, rxbuf.rcvBuffer);
+					cmm_print(DEBUG_ERROR, "Policer configuration operation unsuccessful\n");
+				}
+				else
+					cmm_print(DEBUG_STDOUT, "Policer configuration operation successful\n");
+			}
+			return QM_SUCCESS;
+		}
+	} else {
+
+		if(strcasecmp(keywords[cpt], "reset") == 0)
+		{
+			fpp_qm_ingress_policer_reset_cmd_t resetCmd;
+
+			memset(&resetCmd, 0, sizeof(resetCmd));
+			/* Send CMD_QM_INGRESS_POLICER_RESET command */
+			if(cmmSendToDaemon(daemon_handle, FPP_CMD_QM_INGRESS_POLICER_RESET, &resetCmd, sizeof(fpp_qm_ingress_policer_reset_cmd_t),
+						&rxbuf.rcvBuffer) == 2) {
+
+				if (rxbuf.result != 0) {
+					cmm_print(DEBUG_ERROR, "Policer reset configuration operation unsuccessful\n");
+					showErrorMsg("CMD_QM_INGRESS_POLICER_RESET", ERRMSG_SOURCE_FPP, rxbuf.rcvBuffer);
+				}
+				else
+					cmm_print(DEBUG_ERROR, "Policer reset operation successful\n");
+			}
+			return QM_SUCCESS;
+		}
+	}
+help:
+	cmm_print(DEBUG_STDOUT, "Usage: set qm ingress queue <0-7> policer [on | off]\n");
+	cmm_print(DEBUG_STDOUT, "Usage: set qm ingress queue <1-7> [cir {1 - 20971250}] [pir {1 - 20971250}]\n");
+	cmm_print(DEBUG_STDOUT, "Usage: set qm ingress queue default [cir {1 - 20971250] [pir {1 - 20971250}]\n");
+	cmm_print(DEBUG_STDOUT, "Usage: set qm ingress reset \n");
+	return QM_ERROR;
+}
+
+#ifdef SEC_PROFILE_SUPPORT
+static int qm_sec_policer_cfg(char **keywords, int cpt, daemon_handle_t daemon_handle)
+{
+	union u_rxbuf rxbuf;
+	/* Use aligned local variable for qm_get_num() to avoid taking
+	 * address of packed struct members (causes alignment issues on arm64) */
+	uint32_t tmp_val;
+
+	/* fast forward rate limit */
+	fpp_qm_sec_rate_cmd_t secRateCmd;
+
+	memset(&secRateCmd, 0, sizeof(fpp_qm_sec_rate_cmd_t));
+
+	if(!keywords[cpt + 1])
+	{
+		cmm_print(DEBUG_STDERR, "Error : invalid keyword. It expects either cir/pir configuration or reset.\n");
+		goto help;
+	}
+	if((strcasecmp(keywords[cpt + 1], "reset") != 0) &&
+	   (strcasecmp(keywords[cpt + 1], "cir") != 0))  {
+		cmm_print(DEBUG_STDERR, "Error : invalid keyword. It expects either cir/pir configuration or reset.\n");
+		goto help;
+	}
+
+	if(strcasecmp(keywords[cpt + 1], "reset") == 0)
+	{
+		fpp_qm_ingress_policer_reset_cmd_t resetCmd;
+
+		memset(&resetCmd, 0, sizeof(resetCmd));
+		/* Send FPP_CMD_QM_SEC_POLICER_RESET command */
+		if(cmmSendToDaemon(daemon_handle, FPP_CMD_QM_SEC_POLICER_RESET,
+				&resetCmd, sizeof(fpp_qm_ingress_policer_reset_cmd_t), &rxbuf.rcvBuffer) == 2) {
+
+			if (rxbuf.result != 0) {
+				cmm_print(DEBUG_ERROR, "Sec Policer reset configuration operation unsuccessful\n");
+				showErrorMsg("FPP_CMD_QM_SEC_POLICER_RESET", ERRMSG_SOURCE_FPP, rxbuf.rcvBuffer);
+			}
+			else
+				cmm_print(DEBUG_ERROR, "Sec Policer reset operation successful\n");
+		}
+		return QM_SUCCESS;
+	}
+
+	if(strcasecmp(keywords[++cpt], "cir") != 0)  {
+		cmm_print(DEBUG_STDERR, "Error : invalid keyword. It expects cir parameter and its value.\n");
+		goto help;
+	}
+	/* Get an integer from the string */
+	if (qm_get_num(keywords, &cpt, UINT_MAX, &tmp_val,
+		"invalid value for port cir rate\n"))
+		goto help;
+	secRateCmd.cir = tmp_val;
+
+	if ((secRateCmd.cir < QM_SECRATE_MIN_CIR) || (secRateCmd.cir > QM_SECRATE_MAX_CIR))
+	{
+		cmm_print(DEBUG_CRIT, "CMD_QM_SEC_RATE ERROR: invalid cir rate\n");
+		goto help;
+	}
+
+	if((!keywords[cpt]) || (strcasecmp(keywords[cpt], "pir") != 0))  {
+		cmm_print(DEBUG_STDERR, "Error : invalid keyword. It expects pir parameter and its value.\n");
+		goto help;
+	}
+	/* Get an integer from the string*/
+	if (qm_get_num(keywords, &cpt, UINT_MAX, &tmp_val,
+		"invalid value for port pir rate\n"))
+		goto help;
+	secRateCmd.pir = tmp_val;
+	/* pps values for 64 bytes frames 10 Gbps max */
+	if ((secRateCmd.pir < QM_SECRATE_MIN_PIR) || (secRateCmd.pir > QM_SECRATE_MAX_PIR))
+	{
+		cmm_print(DEBUG_CRIT, "CMD_QM_SEC_POLICER_RATE ERROR: invalid pir rate\n");
+		goto help;
+	}
+	if (secRateCmd.pir < secRateCmd.cir) {
+		cmm_print(DEBUG_CRIT, "CMD_QM_SEC_POLICER_RATE ERROR: pir < cir\n");
+		goto help;
+	}
+	if((!keywords[cpt]) || (strcasecmp(keywords[cpt], "cbs") != 0))  {
+		cmm_print(DEBUG_STDERR, "Error : invalid keyword. It expects cbs parameter and its value.\n");
+		goto help;
+	}
+	/* Get an integer from the string*/
+	if (qm_get_num(keywords, &cpt, UINT_MAX, &tmp_val, "invalid value for port cbs value\n"))
+		goto help;
+	secRateCmd.cbs = tmp_val;
+	/* pps values for 64 bytes frames 10 Gbps max */
+	if ((secRateCmd.cbs < QM_SECRATE_MIN_CBS) || (secRateCmd.cbs > QM_SECRATE_MAX_CBS))
+	{
+		cmm_print(DEBUG_CRIT, "CMD_QM_SEC_POLICER_CBS ERROR: invalid cbs\n");
+		goto help;
+	}
+	if((!keywords[cpt]) || (strcasecmp(keywords[cpt], "pbs") != 0))  {
+		cmm_print(DEBUG_STDERR, "Error : invalid keyword. It expects pbs parameter and its value.\n");
+		goto help;
+	}
+	/* Get an integer from the string*/
+	if (qm_get_num(keywords, &cpt, UINT_MAX, &tmp_val, "invalid value for port pbs value\n"))
+		goto help;
+	secRateCmd.pbs = tmp_val;
+	/* pps values for 64 bytes frames 10 Gbps max */
+	if ((secRateCmd.pbs < QM_SECRATE_MIN_PBS) || (secRateCmd.pbs > QM_SECRATE_MAX_PBS))
+	{
+		cmm_print(DEBUG_CRIT, "CMD_QM_SEC_POLICER_PBS ERROR: invalid pbs\n");
+		goto help;
+	}
+
+
+	/* Send CMD_QM_SEC_RATE command */
+	if(cmmSendToDaemon(daemon_handle, FPP_CMD_QM_SEC_POLICER_RATE, &secRateCmd, sizeof(secRateCmd), &rxbuf) == 2)
+	{
+		if (rxbuf.result != 0)
+			showErrorMsg("FPP_CMD_QM_SEC_POLICER_RATE", ERRMSG_SOURCE_FPP, rxbuf.rcvBuffer);
+	}
+	return QM_SUCCESS;
+
+
+help:
+	cmm_print(DEBUG_STDOUT, "Usage: set qm sec_rate cir {%u - %u} pir {%u - %u} cbs {%u - %u} pbs {%u - %u}\n",
+			QM_SECRATE_MIN_CIR, QM_SECRATE_MAX_CIR, QM_SECRATE_MIN_PIR, QM_SECRATE_MAX_PIR,
+			QM_SECRATE_MIN_CBS, QM_SECRATE_MAX_CBS, QM_SECRATE_MIN_PBS, QM_SECRATE_MAX_PBS);
+	cmm_print(DEBUG_STDOUT, "Usage: set qm sec_rate reset \n");
+	return QM_ERROR;
+}
+#endif /* endif for SEC_PROFILE_SUPPORT */
+#endif
 
 int cmmQmSetProcess(char **keywords, int tabStart, daemon_handle_t daemon_handle)
 {
@@ -465,6 +883,18 @@ int cmmQmSetProcess(char **keywords, int tabStart, daemon_handle_t daemon_handle
 			break;
 		}
 
+#ifdef ENABLE_INGRESS_QOS
+		if(strcasecmp(keywords[cpt], "ingress") == 0)  {
+			retval = qm_ingress_policer_cfg(keywords, &cpt, daemon_handle);
+			break;
+                }
+#ifdef SEC_PROFILE_SUPPORT
+		if(strcasecmp(keywords[cpt], "sec_rate") == 0)  {
+			retval = qm_sec_policer_cfg(keywords, cpt, daemon_handle);
+			break;
+		}
+#endif /* endif for SEC_PROFILE_SUPPORT */
+#endif
 
 		break;
 	} 

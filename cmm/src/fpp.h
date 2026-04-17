@@ -762,6 +762,13 @@ typedef struct fpp_expt_queue_control_cmd {
 #define FPP_CMD_QM_INGRESS_POLICER_RESET                0x0226
 #define FPP_CMD_QM_INGRESS_POLICER_QUERY_STATS          0x0227
 
+#ifdef ENABLE_INGRESS_QOS
+#ifdef SEC_PROFILE_SUPPORT
+#define FPP_CMD_QM_SEC_POLICER_RATE                     0x0230
+#define FPP_CMD_QM_QUERY_SEC_POLICERRATE                0x0231
+#define FPP_CMD_QM_SEC_POLICER_RESET                    0x0232
+#endif /* endif for SEC_PROFILE_SUPPORT */
+#endif
 
 
 #define FPP_MAX_DSCP                                    63
@@ -856,6 +863,18 @@ typedef struct fpp_qm_ff_rate_cmd {
 	u_int32_t counterval[MAX_RATLIM_CNTR];
 } __attribute__((__packed__)) fpp_qm_ff_rate_cmd_t;
 
+#ifdef SEC_PROFILE_SUPPORT
+typedef struct fpp_qm_sec_rate_cmd {
+	u_int16_t status;
+	u_int16_t reserved;
+	u_int32_t cir;
+	u_int32_t pir;
+	u_int32_t cbs;
+	u_int32_t pbs;
+	u_int32_t clear;
+	u_int32_t counterval[MAX_RATLIM_CNTR];
+} __attribute__((__packed__)) fpp_qm_sec_rate_cmd_t;
+#endif /* endif for SEC_PROFILE_SUPPORT */
 
 typedef struct fpp_qm_query_rl
 {
@@ -961,6 +980,12 @@ typedef struct fpp_qm_ingress_plcr_query_stats_cmd {
 	struct fpp_qm_ingress_policer_info policer_stats[FPP_NUM_INGRESS_POLICER_QUEUES];
 } __attribute__((__packed__)) fpp_qm_ingress_plcr_query_stats_cmd_t;
 
+#ifdef SEC_PROFILE_SUPPORT
+typedef struct fpp_qm_sec_plcr_query_stats_cmd {
+	uint32_t clear;
+	struct fpp_qm_ingress_policer_info policer_stats;
+} __attribute__((__packed__)) fpp_qm_sec_plcr_query_stats_cmd_t;
+#endif /* endif for SEC_PROFILE_SUPPORT */
 
 #else
 typedef struct fpp_qm_query_cmd

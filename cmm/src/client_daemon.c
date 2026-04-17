@@ -274,6 +274,9 @@ void cmmClientPrintHelp()
 									"\tqmingress: Ingress Policer information\n"
 #if defined (LS1043)
 									"\tqmffrate: fast forward rate limiting\n"
+#ifdef SEC_PROFILE_SUPPORT
+									"\tqmsecrate: ipsec forward rate limiting\n"
+#endif /* endif for SEC_PROFILE_SUPPORT */
 #endif
 									"\ttx-dscp-to-vlanpcp: dscp vlan pcp mapping\n"
 									"\tconnections: IPV4 connections\n"
@@ -372,6 +375,18 @@ int cmmSendToDaemon(daemon_handle_t handle, unsigned short commandCode, void * d
 	if (dataToSend)
 		memcpy(msg.buffer, dataToSend, dataSize);
 
+#if 0
+	if ((globalConf.debug_level & DEBUG_INFO) || (globalConf.log_level & DEBUG_INFO))
+	{
+		int rcvDataSize;
+		cmm_print(DEBUG_INFO, "commandCode: (%04x) \n", (unsigned int)msg.mtype);
+		for(rcvDataSize = 0; rcvDataSize < dataSize; rcvDataSize+=2)
+		{
+			cmm_print(DEBUG_INFO, "%02x%02x \n", msg.buffer[rcvDataSize + 1], msg.buffer[rcvDataSize]);
+		}
+		cmm_print(DEBUG_INFO, "\n");
+	}
+#endif
 
 	if (msgsnd(queueIdTx, &msg, dataSize, 0) < 0)
 	{
@@ -387,6 +402,18 @@ int cmmSendToDaemon(daemon_handle_t handle, unsigned short commandCode, void * d
 		return -1;
 	}
 
+#if 0
+	if ((globalConf.debug_level & DEBUG_INFO) || (globalConf.log_level & DEBUG_INFO))
+	{
+		int rcvDataSize;
+		cmm_print(DEBUG_INFO, "commandAck:  (%04x) \n", (unsigned int)msg.mtype);
+		for(rcvDataSize = 0; rcvDataSize < rcvBytes ; rcvDataSize += 2)
+		{
+			cmm_print(DEBUG_INFO, "%04x \n", ((unsigned short *)msg.buffer)[rcvDataSize]);
+		}
+		cmm_print(DEBUG_INFO, "\n");
+	}
+#endif
 
 	if ((dataToRcv) && (rcvBytes))
 		memcpy(dataToRcv, msg.buffer, rcvBytes);
@@ -632,6 +659,14 @@ int cmmClientProcessCmd(char * command, int argc, char ** argv, daemon_handle_t 
 			if(cmmQmIngressQueryProcess(keywords, 2, daemon_handle))
 				return -1;
 		}
+#ifdef SEC_PROFILE_SUPPORT
+		else if (strcasecmp(keywords[1], "qmsecrate") == 0)
+		{
+			/*Call Sec QM process function*/
+			if(cmmQmSecQueryProcess(keywords, 2, daemon_handle))
+				return -1;
+		}
+#endif /* endif for SEC_PROFILE_SUPPORT */
 		else if (strcasecmp(keywords[1], "qmexptrate") == 0)
 		{
 			/*Call QM process function*/
@@ -1302,6 +1337,11 @@ static int cmmCommandParse(struct cmm_daemon *ctx, int function_code, u_int8_t *
 	case FPP_CMD_QM_INGRESS_POLICER_CONFIG:
 	case FPP_CMD_QM_INGRESS_POLICER_RESET:
 	case FPP_CMD_QM_INGRESS_POLICER_QUERY_STATS:
+#ifdef SEC_PROFILE_SUPPORT
+	case FPP_CMD_QM_QUERY_SEC_POLICERRATE:
+	case FPP_CMD_QM_SEC_POLICER_RATE:
+	case FPP_CMD_QM_SEC_POLICER_RESET:
+#endif /* endif for SEC_PROFILE_SUPPORT */
 		goto FCI_CMD;
 #endif
 	// Accept the remaining qm commands

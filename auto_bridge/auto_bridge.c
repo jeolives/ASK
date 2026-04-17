@@ -10,11 +10,14 @@
  *
  *
  */
- 
+
+#define pr_fmt(fmt) "ABM: " fmt
+
 #include <linux/socket.h>
 #include <linux/kernel.h>
 #include <linux/module.h>
 #include <linux/netlink.h>
+#include <linux/random.h>
 #include <linux/skbuff.h>
 #include <net/netlink.h>
 #include <linux/timer.h>
@@ -51,30 +54,32 @@ static const char auto_bridge_version[] = "0.01";
 #define HOURS * 60 MINS
 #define DAYS * 24 HOURS
 
-struct list_head			l2flow_table[L2FLOW_HASH_TABLE_SIZE];
-struct list_head			l2flow_table_by_src_mac[L2FLOW_HASH_BY_MAC_TABLE_SIZE];
-struct list_head			l2flow_table_by_dst_mac[L2FLOW_HASH_BY_MAC_TABLE_SIZE];
+static struct list_head			l2flow_table[L2FLOW_HASH_TABLE_SIZE];
+static struct list_head			l2flow_table_by_src_mac[L2FLOW_HASH_BY_MAC_TABLE_SIZE];
+static struct list_head			l2flow_table_by_dst_mac[L2FLOW_HASH_BY_MAC_TABLE_SIZE];
 
-struct list_head			l2flow_list_wait_for_ack;
-struct list_head			l2flow_list_msg_to_send;
+static struct list_head			l2flow_list_wait_for_ack;
+static struct list_head			l2flow_list_msg_to_send;
 
-struct list_head			bridge_list_rtevent;
+static struct list_head			bridge_list_rtevent;
 
-static struct kmem_cache		*l2flow_cache /*__read_mostly*/;
-static struct kmem_cache		*brroute_cache /*__read_mostly*/;
-static struct sock			*abm_nl = NULL;
-static char			abm_l3_filtering = 0;
+static struct kmem_cache		*l2flow_cache __read_mostly;
+static struct kmem_cache		*brroute_cache __read_mostly;
+static struct sock			*abm_nl;
+static unsigned int			abm_l3_filtering;
 static unsigned int			abm_max_entries = ABM_DEFAULT_MAX_ENTRIES;
-static unsigned int			abm_nb_entries =	0;
-struct workqueue_struct		*kabm_wq;
-static int				abm_retransmit_time = 2 SECS;
+static unsigned int			abm_nb_entries;
+static struct workqueue_struct		*kabm_wq;
+static unsigned int			abm_retransmit_time = 2 SECS;
 
-DEFINE_SPINLOCK(abm_lock);
+u32 abm_hash_seed __read_mostly;
+
+static DEFINE_SPINLOCK(abm_lock);
 static DECLARE_WORK(abm_work_send_msg, abm_do_work_send_msg);
 static DECLARE_DELAYED_WORK(abm_work_retransmit, abm_do_work_retransmit);
 
 
-static unsigned int l2flow_timeouts[L2FLOW_STATE_MAX] /*__read_mostly*/ = {
+static unsigned int l2flow_timeouts[L2FLOW_STATE_MAX] __read_mostly = {
 	[L2FLOW_STATE_SEEN]			= 10 SECS,
 	[L2FLOW_STATE_CONFIRMED]		= 2 MINS,
 	[L2FLOW_STATE_LINUX]			= 10 SECS,
@@ -102,51 +107,50 @@ static void abm_do_work_send_msg(struct work_struct *work)
 	struct list_head *entry, *tmp;
 	struct l2flowTable *table_entry;
 	struct br_event_table *brtable_entry;
+	LIST_HEAD(rtevents);
 	char action = 0;
 
-	if (!netlink_has_listeners(abm_nl, L2FLOW_NL_GRP)){
+	if (!netlink_has_listeners(abm_nl, L2FLOW_NL_GRP))
 		return;
-	}
+
 	spin_lock_bh(&abm_lock);
-	//TODO : Need to limit the number of messages to sent while holding the lock.
-	list_for_each_safe(entry, tmp, &l2flow_list_msg_to_send){
+	list_for_each_safe(entry, tmp, &l2flow_list_msg_to_send) {
 		table_entry = container_of(entry, struct l2flowTable, list_msg_to_send);
-		if((table_entry->state == L2FLOW_STATE_SEEN) 
-		|| (table_entry->state == L2FLOW_STATE_CONFIRMED)){
-			action = L2FLOW_ENTRY_NEW;		
-		}
-		else if((table_entry->state == L2FLOW_STATE_LINUX) 
-		|| (table_entry->state == L2FLOW_STATE_FF)){
+		if (table_entry->state == L2FLOW_STATE_SEEN
+		 || table_entry->state == L2FLOW_STATE_CONFIRMED)
+			action = L2FLOW_ENTRY_NEW;
+		else if (table_entry->state == L2FLOW_STATE_LINUX
+		      || table_entry->state == L2FLOW_STATE_FF)
 			action = L2FLOW_ENTRY_UPDATE;
-		}
-		else if (table_entry->state == L2FLOW_STATE_DYING){
+		else if (table_entry->state == L2FLOW_STATE_DYING)
 			action = L2FLOW_ENTRY_DEL;
-		}
-		if(abm_nl_send_l2flow_msg(abm_nl, action, 0, table_entry) != -ENOTCONN){
-			table_entry->flags &= ~L2FLOW_FL_PENDING_MSG;
-			table_entry->flags &= ~L2FLOW_FL_NEEDS_UPDATE;
+
+		if (abm_nl_send_l2flow_msg(abm_nl, action, 0, table_entry) != -ENOTCONN) {
+			table_entry->flags &= ~(L2FLOW_FL_PENDING_MSG | L2FLOW_FL_NEEDS_UPDATE);
 			list_del(&table_entry->list_msg_to_send);
 			table_entry->time_sent = jiffies;
-			if(!(table_entry->flags & L2FLOW_FL_WAIT_ACK)){
+			if (!(table_entry->flags & L2FLOW_FL_WAIT_ACK)) {
 				list_add(&table_entry->list_wait_for_ack, &l2flow_list_wait_for_ack);
 				table_entry->flags |= L2FLOW_FL_WAIT_ACK;
 			}
 		}
 	}
 
-	list_for_each_safe(entry, tmp, &bridge_list_rtevent){
+	/* Splice rtnl events out so we can take rtnl_lock (a mutex) without
+	 * sleeping under abm_lock. */
+	list_splice_init(&bridge_list_rtevent, &rtevents);
+	spin_unlock_bh(&abm_lock);
+
+	list_for_each_safe(entry, tmp, &rtevents) {
 		brtable_entry = container_of(entry, struct br_event_table, list_rtevent);
-		if (brtable_entry->brdev)
-		{
+		if (brtable_entry->brdev) {
 			rtnl_lock();
-			rtmsg_ifinfo(RTM_NEWLINK, brtable_entry->brdev, 0, GFP_ATOMIC, 0, NULL);
+			rtmsg_ifinfo(RTM_NEWLINK, brtable_entry->brdev, 0, GFP_KERNEL, 0, NULL);
 			rtnl_unlock();
 		}
 		list_del(&brtable_entry->list_rtevent);
 		kmem_cache_free(brroute_cache, brtable_entry);
 	}
-
-	spin_unlock_bh(&abm_lock);
 }
 
 /***************************************************************************
@@ -201,12 +205,9 @@ static int add_brevent(struct brevent_fdb_update * fdb_update)
 {
 	struct br_event_table *brtable_entry;
 						
-	brtable_entry = kmem_cache_alloc(brroute_cache, GFP_ATOMIC); // called under soft_irq context
-	if(!brtable_entry){
-		printk(KERN_ERR "Automatic bridging module error brroute_cache OOM\n");
-		return -1;
-	}
-	memset(brtable_entry, 0, sizeof(*brtable_entry));
+	brtable_entry = kmem_cache_zalloc(brroute_cache, GFP_ATOMIC);
+	if (!brtable_entry)
+		return -ENOMEM;
 	brtable_entry->brdev = fdb_update->brdev;
 	list_add(&brtable_entry->list_rtevent, &bridge_list_rtevent);
 
@@ -290,7 +291,7 @@ static int abm_br_event(struct notifier_block *unused, unsigned long event, void
 
 	return NOTIFY_DONE;
 }
-struct notifier_block abm_br_notifier = {
+static struct notifier_block abm_br_notifier = {
 	.notifier_call = abm_br_event
 };
 
@@ -418,41 +419,47 @@ static int abm_nl_send_l2flow_msg(struct sock *s, char action, int flags, struct
 	memcpy(l2flow_msg->daddr, table_entry->l2flow.daddr, 6);
 	l2flow_msg->ethertype = table_entry->l2flow.ethertype;
 
-	NLA_PUT_U32(skb, L2FLOWA_IIF_IDX, table_entry->idev_ifi);
-	NLA_PUT_U32(skb, L2FLOWA_OIF_IDX, table_entry->odev_ifi);
-	NLA_PUT_U16(skb, L2FLOWA_MARK, table_entry->packet_mark);
+	if (nla_put_u32(skb, L2FLOWA_IIF_IDX, table_entry->idev_ifi) ||
+	    nla_put_u32(skb, L2FLOWA_OIF_IDX, table_entry->odev_ifi) ||
+	    nla_put_u16(skb, L2FLOWA_MARK, table_entry->packet_mark))
+		goto nla_put_failure;
 
 #ifdef VLAN_FILTER
-	NLA_PUT_U16(skb, L2FLOWA_VID, table_entry->l2flow.vid);
-	NLA_PUT_U8(skb, L2FLOWA_VLAN_FLAGS, table_entry->l2flow.vlan_flags);
+	if (nla_put_u16(skb, L2FLOWA_VID, table_entry->l2flow.vid) ||
+	    nla_put_u8(skb, L2FLOWA_VLAN_FLAGS, table_entry->l2flow.vlan_flags))
+		goto nla_put_failure;
 #endif
 
-	NLA_PUT_U16(skb, L2FLOWA_SVLAN_TAG, table_entry->l2flow.svlan_tag);
-	NLA_PUT_U16(skb, L2FLOWA_CVLAN_TAG, table_entry->l2flow.cvlan_tag);
+	if (nla_put_u16(skb, L2FLOWA_SVLAN_TAG, table_entry->l2flow.svlan_tag) ||
+	    nla_put_u16(skb, L2FLOWA_CVLAN_TAG, table_entry->l2flow.cvlan_tag))
+		goto nla_put_failure;
 
-	if (table_entry->l2flow.ethertype == htons(ETH_P_PPP_SES))
-		NLA_PUT_U16(skb, L2FLOWA_PPP_S_ID, table_entry->l2flow.session_id);
+	if (table_entry->l2flow.ethertype == htons(ETH_P_PPP_SES) &&
+	    nla_put_u16(skb, L2FLOWA_PPP_S_ID, table_entry->l2flow.session_id))
+		goto nla_put_failure;
 
-	if(abm_l3_filtering){
+	if (abm_l3_filtering) {
+		if (table_entry->l2flow.ethertype != htons(ETH_P_PPP_SES) &&
+		    nla_put_u8(skb, L2FLOWA_IP_PROTO, table_entry->l2flow.l3.proto))
+			goto nla_put_failure;
 
-		if(table_entry->l2flow.ethertype != htons(ETH_P_PPP_SES))
-			NLA_PUT_U8(skb, L2FLOWA_IP_PROTO, table_entry->l2flow.l3.proto);
-		
-		if(table_entry->l2flow.ethertype == htons(ETH_P_IP)){
-			NLA_PUT_U32(skb, L2FLOWA_IP_SRC, table_entry->l2flow.l3.saddr.ip);
-			NLA_PUT_U32(skb, L2FLOWA_IP_DST, table_entry->l2flow.l3.daddr.ip);
+		if (table_entry->l2flow.ethertype == htons(ETH_P_IP)) {
+			if (nla_put_u32(skb, L2FLOWA_IP_SRC, table_entry->l2flow.l3.saddr.ip) ||
+			    nla_put_u32(skb, L2FLOWA_IP_DST, table_entry->l2flow.l3.daddr.ip))
+				goto nla_put_failure;
+		} else if (table_entry->l2flow.ethertype == htons(ETH_P_IPV6)) {
+			if (nla_put(skb, L2FLOWA_IP_SRC, sizeof(u32) * 4,
+				    table_entry->l2flow.l3.saddr.ip6) ||
+			    nla_put(skb, L2FLOWA_IP_DST, sizeof(u32) * 4,
+				    table_entry->l2flow.l3.daddr.ip6))
+				goto nla_put_failure;
 		}
-		else if (table_entry->l2flow.ethertype == htons(ETH_P_IPV6)){
-			NLA_PUT(skb, L2FLOWA_IP_SRC, sizeof(u_int32_t) * 4, 
-					table_entry->l2flow.l3.saddr.ip6);
-			NLA_PUT(skb, L2FLOWA_IP_DST, sizeof(u_int32_t) * 4, 
-					table_entry->l2flow.l3.daddr.ip6);
-		}
-		
-		if((table_entry->l2flow.l3.proto == IPPROTO_UDP) 
-		|| (table_entry->l2flow.l3.proto == IPPROTO_TCP)){
-			NLA_PUT_U16(skb, L2FLOWA_SPORT, table_entry->l2flow.l4.sport);
-			NLA_PUT_U16(skb, L2FLOWA_DPORT, table_entry->l2flow.l4.dport);
+
+		if (table_entry->l2flow.l3.proto == IPPROTO_UDP ||
+		    table_entry->l2flow.l3.proto == IPPROTO_TCP) {
+			if (nla_put_u16(skb, L2FLOWA_SPORT, table_entry->l2flow.l4.sport) ||
+			    nla_put_u16(skb, L2FLOWA_DPORT, table_entry->l2flow.l4.dport))
+				goto nla_put_failure;
 		}
 	}
 	nlmsg_end(skb, nlh);
@@ -484,82 +491,78 @@ err:
 * Handle NL message from user-space
 * 
 ****************************************************************************/
-static int abm_nl_rcv_msg(struct sk_buff *skb, struct nlmsghdr *nlh ,struct netlink_ext_ack *ext )
+static int abm_nl_rcv_msg(struct sk_buff *skb, struct nlmsghdr *nlh, struct netlink_ext_ack *ext)
 {
 	int type, err = 0;
 	struct l2flow l2flow_temp;
 	struct l2flow_msg *l2flow_msg;
 	struct nlattr *tb[L2FLOWA_MAX + 1];
 
+	if (!netlink_capable(skb, CAP_NET_ADMIN))
+		return -EPERM;
+
 	type = nlh->nlmsg_type;
 
-	if(type >= L2FLOW_MSG_MAX){
-		err = -EAGAIN;
-		goto out;
-	}
+	if (type >= L2FLOW_MSG_MAX)
+		return -EAGAIN;
 
 	err = nlmsg_parse(nlh, sizeof(*l2flow_msg), tb, L2FLOWA_MAX, NULL, NULL);
-	if(err < 0)
-		goto out;
-	
-	switch(type)
-	{
-		case L2FLOW_MSG_ENTRY:
-			/*Messages must have at least l2flow_msg length */
-			if (nlh->nlmsg_len < NLMSG_LENGTH(sizeof(struct l2flow_msg))){
-				err = -EAGAIN;
-				goto out;
-			}
-	
-			memset(&l2flow_temp, 0, sizeof(l2flow_temp));
-			l2flow_msg = NLMSG_DATA(nlh);
-			
-			/* Here we don't really care of message sanity, if parameters are wrong entry won't be found */
-			/* No entry is created here */
-			memcpy(l2flow_temp.saddr, l2flow_msg->saddr, ETH_ALEN);
-			memcpy(l2flow_temp.daddr, l2flow_msg->daddr, ETH_ALEN);
-			l2flow_temp.ethertype = l2flow_msg->ethertype;
+	if (err < 0)
+		return err;
 
-			if(tb[L2FLOWA_SVLAN_TAG]) {
-				l2flow_temp.svlan_tag = nla_get_u16(tb[L2FLOWA_SVLAN_TAG]);
-			}
-			if(tb[L2FLOWA_CVLAN_TAG]) {
-				l2flow_temp.cvlan_tag = nla_get_u16(tb[L2FLOWA_CVLAN_TAG]);
-			}
+	switch (type) {
+	case L2FLOW_MSG_ENTRY:
+		if (nlh->nlmsg_len < NLMSG_LENGTH(sizeof(struct l2flow_msg)))
+			return -EAGAIN;
+
+		memset(&l2flow_temp, 0, sizeof(l2flow_temp));
+		l2flow_msg = NLMSG_DATA(nlh);
+
+		/* Here we don't really care about message sanity — if parameters
+		 * are wrong the entry won't be found. No entry is created here. */
+		memcpy(l2flow_temp.saddr, l2flow_msg->saddr, ETH_ALEN);
+		memcpy(l2flow_temp.daddr, l2flow_msg->daddr, ETH_ALEN);
+		l2flow_temp.ethertype = l2flow_msg->ethertype;
+
+		if (tb[L2FLOWA_SVLAN_TAG])
+			l2flow_temp.svlan_tag = nla_get_u16(tb[L2FLOWA_SVLAN_TAG]);
+		if (tb[L2FLOWA_CVLAN_TAG])
+			l2flow_temp.cvlan_tag = nla_get_u16(tb[L2FLOWA_CVLAN_TAG]);
 #ifdef VLAN_FILTER
-			if(tb[L2FLOWA_VID]) {
-				l2flow_temp.vid = nla_get_u16(tb[L2FLOWA_VID]);
-			}
-			if(tb[L2FLOWA_VLAN_FLAGS])
-				l2flow_temp.vlan_flags = nla_get_u8(tb[L2FLOWA_VLAN_FLAGS]);
+		if (tb[L2FLOWA_VID])
+			l2flow_temp.vid = nla_get_u16(tb[L2FLOWA_VID]);
+		if (tb[L2FLOWA_VLAN_FLAGS])
+			l2flow_temp.vlan_flags = nla_get_u8(tb[L2FLOWA_VLAN_FLAGS]);
 #endif
+		if (tb[L2FLOWA_PPP_S_ID])
+			l2flow_temp.session_id = nla_get_u16(tb[L2FLOWA_PPP_S_ID]);
 
-			if(tb[L2FLOWA_PPP_S_ID])
-				l2flow_temp.session_id = nla_get_u16(tb[L2FLOWA_PPP_S_ID]);
+		/* Reject oversized L3 attributes to prevent stack overflow. */
+		if (tb[L2FLOWA_IP_SRC]) {
+			if (nla_len(tb[L2FLOWA_IP_SRC]) > sizeof(l2flow_temp.l3.saddr.all))
+				return -EINVAL;
+			memcpy(&l2flow_temp.l3.saddr.all, nla_data(tb[L2FLOWA_IP_SRC]),
+			       nla_len(tb[L2FLOWA_IP_SRC]));
+		}
+		if (tb[L2FLOWA_IP_DST]) {
+			if (nla_len(tb[L2FLOWA_IP_DST]) > sizeof(l2flow_temp.l3.daddr.all))
+				return -EINVAL;
+			memcpy(&l2flow_temp.l3.daddr.all, nla_data(tb[L2FLOWA_IP_DST]),
+			       nla_len(tb[L2FLOWA_IP_DST]));
+		}
 
-			if(tb[L2FLOWA_IP_SRC])
-				memcpy(&l2flow_temp.l3.saddr.all, nla_data(tb[L2FLOWA_IP_SRC]), nla_len(tb[L2FLOWA_IP_SRC]));
+		if (tb[L2FLOWA_IP_PROTO])
+			l2flow_temp.l3.proto = nla_get_u8(tb[L2FLOWA_IP_PROTO]);
+		if (tb[L2FLOWA_SPORT])
+			l2flow_temp.l4.sport = nla_get_u16(tb[L2FLOWA_SPORT]);
+		if (tb[L2FLOWA_DPORT])
+			l2flow_temp.l4.dport = nla_get_u16(tb[L2FLOWA_DPORT]);
 
-			if(tb[L2FLOWA_IP_DST])
-				memcpy(&l2flow_temp.l3.daddr.all, nla_data(tb[L2FLOWA_IP_DST]), nla_len(tb[L2FLOWA_IP_DST]));
-
-			if(tb[L2FLOWA_IP_PROTO])
-				l2flow_temp.l3.proto= nla_get_u8(tb[L2FLOWA_IP_PROTO]);
-			
-			if(tb[L2FLOWA_SPORT])
-				l2flow_temp.l4.sport= nla_get_u16(tb[L2FLOWA_SPORT]);
-
-			if(tb[L2FLOWA_DPORT])
-				l2flow_temp.l4.dport= nla_get_u16(tb[L2FLOWA_DPORT]);
-			
-			err = abm_l2flow_msg_handle(l2flow_msg->action, l2flow_msg->flags, &l2flow_temp);
-			
-			
+		err = abm_l2flow_msg_handle(l2flow_msg->action, l2flow_msg->flags, &l2flow_temp);
 		break;
-		case L2FLOW_MSG_RESET:
-		break;	
+	case L2FLOW_MSG_RESET:
+		break;
 	}
-out:
 	return err;
 }
 
@@ -765,12 +768,9 @@ static struct l2flowTable * abm_l2flow_add(struct l2flow *l2flowtmp)
 	key_src_mac = abm_l2flow_hash_mac(l2flowtmp->saddr);
 	key_dst_mac = abm_l2flow_hash_mac(l2flowtmp->daddr);
 	
-	l2flow_entry = kmem_cache_alloc(l2flow_cache, GFP_ATOMIC); // called under soft_irq context
-	if(!l2flow_entry){
-		printk(KERN_ERR "Automatic bridging module error l2flow_cache OOM\n");
+	l2flow_entry = kmem_cache_zalloc(l2flow_cache, GFP_ATOMIC);
+	if (!l2flow_entry)
 		goto out;
-	}
-	memset(l2flow_entry, 0, sizeof(*l2flow_entry));
 	memcpy(&l2flow_entry->l2flow, l2flowtmp, sizeof(*l2flowtmp));
 	/* Timer not yet started here */
 	timer_setup(&l2flow_entry->timeout, abm_death_by_timeout, 0);
@@ -861,7 +861,7 @@ static inline int abm_build_l2flow(struct sk_buff *skb, struct l2flow *l2flow_te
 				} 
 			}
 			else {
-				printk(KERN_DEBUG "%s:%d vlan eth header is NULL:\n", __func__, __LINE__);
+				pr_debug("%s:%d vlan eth header is NULL\n", __func__, __LINE__);
 			}
 		}
 		else {
@@ -873,8 +873,8 @@ static inline int abm_build_l2flow(struct sk_buff *skb, struct l2flow *l2flow_te
 			l2flow_temp->svlan_tag = vlanh->h_vlan_TCI;
 			if (vlanh->h_vlan_encapsulated_proto == htons(ETH_P_8021Q)) {
 				vlanh = skb_header_pointer(skb, sizeof(_vlanh), sizeof(_vlanh), &_vlanh);
-				if(!vlanh) {
-					printk("%s:%d VLAN HEADER NOT FOUND:\n", __func__, __LINE__);
+				if (!vlanh) {
+					pr_debug("%s:%d VLAN HEADER NOT FOUND\n", __func__, __LINE__);
 					return -1;
 				}
 				l2flow_temp->cvlan_tag = vlanh->h_vlan_TCI;
@@ -1061,7 +1061,7 @@ exit0:
 	return NF_ACCEPT;
 }
 
-static struct nf_hook_ops abm_ebt_ops[] /*__read_mostly*/ = {
+static const struct nf_hook_ops abm_ebt_ops[] = {
 	{
 		.hook		= abm_ebt_hook,
 		.pf		= NFPROTO_BRIDGE,
@@ -1106,22 +1106,22 @@ static  void abm_l2flow_table_flush(void)
 * Small busy loop to wait for already expired timers 
 *
 ****************************************************************************/
-static  __inline void abm_l2flow_table_wait_timers(void)
+static void abm_l2flow_table_wait_timers(void)
 {
-	int i, empty;
-test_list:
-	empty = 1;
-	for(i = 0; i < L2FLOW_HASH_TABLE_SIZE; i++)
-		if(!list_empty(&l2flow_table[i])){
-			empty = 0;
-			break;
+	int i;
+	bool empty;
+
+	do {
+		empty = true;
+		for (i = 0; i < L2FLOW_HASH_TABLE_SIZE; i++) {
+			if (!list_empty(&l2flow_table[i])) {
+				empty = false;
+				break;
+			}
 		}
-		
-	if(empty)
-		return;
-	else{
-		schedule();
-	}	goto test_list;
+		if (!empty)
+			schedule_timeout_uninterruptible(1);
+	} while (!empty);
 }
 
 /***************************************************************************
@@ -1396,11 +1396,11 @@ static int abm_sysctl_l3_filtering(const struct ctl_table *ctl, int write,
 		if(((!old_abm_l3_filtering) && *valp) || (old_abm_l3_filtering && (!*valp))){
 			abm_l2flow_table_flush();
 
-			if((rc = abm_nl_send_rst_msg(abm_nl)) < 0)
-				ABM_PRINT(KERN_ERR, " Netlink send rst msg error = %d\n", rc);
-
+			rc = abm_nl_send_rst_msg(abm_nl);
+			if (rc < 0)
+				pr_err("netlink send rst msg error = %d\n", rc);
 		}
-		abm_l3_filtering = (*valp) ? 1 : 0;
+		abm_l3_filtering = *valp ? 1 : 0;
 	}
 	return ret;
 }
@@ -1471,7 +1471,7 @@ static int __net_init abm_net_init(struct net *net)
 
 	abm_sysctl_hdr = register_net_sysctl(net, "net/abm", abm_sysctl_table);
 	if (!abm_sysctl_hdr) {
-		printk(KERN_ERR "%s():: Auto bridge module sysctl init failed:\n", __func__);
+		pr_err("sysctl init failed\n");
 		return -ENOMEM;
 	}
 
@@ -1511,38 +1511,46 @@ static void abm_sysctl_fini(void)
 ****************************************************************************/
 static int abm_init(void)
 {
-	int rc = 0;
+	int rc;
 
-	printk(KERN_DEBUG "Initializing Automatic bridging module v%s\n", auto_bridge_version);
-	if((kabm_wq = create_singlethread_workqueue("abm_wq")) == NULL){
-		rc = -ENOMEM;
-		ABM_PRINT(KERN_ERR, "Automatic bridging module error creating wq rc = %d \n", rc);
-		return rc;
+	pr_debug("initializing automatic bridging module v%s\n", auto_bridge_version);
+
+	abm_hash_seed = get_random_u32();
+
+	kabm_wq = create_singlethread_workqueue("abm_wq");
+	if (!kabm_wq) {
+		pr_err("workqueue create failed\n");
+		return -ENOMEM;
 	}
-	if((rc = abm_l2flow_table_init()) < 0){
-		ABM_PRINT(KERN_ERR, "Automatic bridging module error l2flow_table init rc = %d \n", rc);
+	rc = abm_l2flow_table_init();
+	if (rc < 0) {
+		pr_err("l2flow table init failed: %d\n", rc);
 		return rc;
 	}
 	br_fdb_register_can_expire_cb(&abm_fdb_can_expire);
-	if((rc = abm_nl_init()) < 0){
-		ABM_PRINT(KERN_ERR, "Automatic bridging module error netlink init int rc = %d \n", rc);
+	rc = abm_nl_init();
+	if (rc < 0) {
+		pr_err("netlink init failed: %d\n", rc);
 		return rc;
 	}
-	if((rc = abm_proc_init()) < 0){
-		ABM_PRINT(KERN_ERR, "Automatic bridging module error can't create /proc file rc = %d \n", rc);
+	rc = abm_proc_init();
+	if (rc < 0) {
+		pr_err("procfs init failed: %d\n", rc);
 		return rc;
 	}
-	if((rc = abm_sysctl_init()) < 0){
-		ABM_PRINT(KERN_ERR, "Automatic bridging module error can't create sysctl rc = %d \n", rc);
+	rc = abm_sysctl_init();
+	if (rc < 0) {
+		pr_err("sysctl init failed: %d\n", rc);
 		return rc;
 	}
-	if((rc = nf_register_net_hooks(&init_net, abm_ebt_ops, ARRAY_SIZE(abm_ebt_ops))) < 0){
-	ABM_PRINT(KERN_ERR, "Automatic bridging module error can't register hooks int rc = %d \n", rc);
+	rc = nf_register_net_hooks(&init_net, abm_ebt_ops, ARRAY_SIZE(abm_ebt_ops));
+	if (rc < 0) {
+		pr_err("nf hook register failed: %d\n", rc);
 		return rc;
 	}
 	register_brevent_notifier(&abm_br_notifier);
 	queue_delayed_work(kabm_wq, &abm_work_retransmit, abm_retransmit_time);
-	
+
 	return 0;
 }
 
@@ -1554,7 +1562,7 @@ static int abm_init(void)
 ****************************************************************************/
 static void abm_exit(void)
 {
-	printk(KERN_DEBUG "Exiting Automatic bridging module \n");
+	pr_debug("exiting automatic bridging module\n");
 	unregister_brevent_notifier(&abm_br_notifier);
 	cancel_work_sync(&abm_work_send_msg);
 	cancel_delayed_work_sync(&abm_work_retransmit);

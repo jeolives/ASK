@@ -198,14 +198,12 @@ typedef struct fpp_socket4_open_cmd {
     u_int16_t	expt_flag; /* flag use to 1)send first packet to exception path or/and 2)duplicate rtp packets*/
     u_int16_t	iifindex; /* iifindex is required for slow path voice frame queues sockets.*/
 #endif //LS1043
-#if defined(COMCERTO_2000) || defined(LS1043)
     u_int16_t   secure;
     u_int16_t   sa_nr_rx;
     u_int16_t   sa_handle_rx[4];
     u_int16_t   sa_nr_tx;
     u_int16_t   sa_handle_tx[4];
     u_int16_t   pad;
-#endif
 } __attribute__((__packed__)) fpp_socket4_open_cmd_t;
 
 typedef struct fpp_socket4_update_cmd {
@@ -222,14 +220,12 @@ typedef struct fpp_socket4_update_cmd {
     u_int16_t       expt_flag; /* flag use to 1)send first packet to exception path or/and 2)duplicate rtp packets*/
     u_int16_t       rsvd3;
 #endif //LS1043
-#if defined(COMCERTO_2000) || defined(LS1043)
     u_int16_t   secure;
     u_int16_t   sa_nr_rx;
     u_int16_t   sa_handle_rx[4];
     u_int16_t   sa_nr_tx;
     u_int16_t   sa_handle_tx[4];
     u_int16_t pad2;
-#endif
 } __attribute__((__packed__)) fpp_socket4_update_cmd_t;
 
 typedef struct fpp_socket4_close_cmd {
@@ -253,14 +249,12 @@ typedef struct fpp_socket6_open_cmd {
     u_int16_t       expt_flag; /* flag use to 1)send first packet to exception path or/and 2)duplicate rtp packets*/
     u_int16_t	iifindex; /* iifindex is required for slow path voice frame queues sockets.*/
 #endif //LS1043
-#if defined(COMCERTO_2000) || defined(LS1043)
     u_int16_t   secure;
     u_int16_t   sa_nr_rx;
     u_int16_t   sa_handle_rx[4];
     u_int16_t   sa_nr_tx;
     u_int16_t   sa_handle_tx[4];
     u_int16_t pad;
-#endif
 } __attribute__((__packed__)) fpp_socket6_open_cmd_t;
 
 typedef struct fpp_socket6_update_cmd {
@@ -277,14 +271,12 @@ typedef struct fpp_socket6_update_cmd {
     u_int16_t       expt_flag; /* flag use to 1)send first packet to exception path or/and 2)duplicate rtp packets*/
     u_int16_t       rsvd3;
 #endif //LS1043
-#if defined(COMCERTO_2000) || defined(LS1043)
     u_int16_t   secure;
     u_int16_t   sa_nr_rx;
     u_int16_t   sa_handle_rx[4];
     u_int16_t   sa_nr_tx;
     u_int16_t   sa_handle_tx[4];
     u_int16_t pad2;
-#endif
 } __attribute__((__packed__)) fpp_socket6_update_cmd_t;
 
 typedef struct fpp_socket6_close_cmd {
@@ -770,25 +762,14 @@ typedef struct fpp_expt_queue_control_cmd {
 #define FPP_CMD_QM_INGRESS_POLICER_RESET                0x0226
 #define FPP_CMD_QM_INGRESS_POLICER_QUERY_STATS          0x0227
 
-#ifdef ENABLE_INGRESS_QOS
-#ifdef SEC_PROFILE_SUPPORT
-#define FPP_CMD_QM_SEC_POLICER_RATE                     0x0230
-#define FPP_CMD_QM_QUERY_SEC_POLICERRATE                0x0231
-#define FPP_CMD_QM_SEC_POLICER_RESET                    0x0232
-#endif /* endif for SEC_PROFILE_SUPPORT */
-#endif
 
 
 #define FPP_MAX_DSCP                                    63
 #define FPP_NUM_DSCP                                    64
 
-#if defined(COMCERTO_2000) ||  defined(LS1043)
 #define FPP_NUM_QUEUES                                  16
 #define FPP_PORT_SHAPER_NUM                             0xffff
 #define FPP_NUM_INGRESS_POLICER_QUEUES                  8
-#else
-#define FPP_NUM_QUEUES                                  32
-#endif
 
 #define FPP_NUM_SHAPERS                                 8
 #define FPP_NUM_SCHEDULERS                              8
@@ -875,18 +856,6 @@ typedef struct fpp_qm_ff_rate_cmd {
 	u_int32_t counterval[MAX_RATLIM_CNTR];
 } __attribute__((__packed__)) fpp_qm_ff_rate_cmd_t;
 
-#ifdef SEC_PROFILE_SUPPORT
-typedef struct fpp_qm_sec_rate_cmd {
-	u_int16_t status;
-	u_int16_t reserved;
-	u_int32_t cir;
-	u_int32_t pir;
-	u_int32_t cbs;
-	u_int32_t pbs;
-	u_int32_t clear;
-	u_int32_t counterval[MAX_RATLIM_CNTR];
-} __attribute__((__packed__)) fpp_qm_sec_rate_cmd_t;
-#endif /* endif for SEC_PROFILE_SUPPORT */
 
 typedef struct fpp_qm_query_rl
 {
@@ -896,7 +865,6 @@ typedef struct fpp_qm_query_rl
     u_int32_t   bucketsize;
 } __attribute__((__packed__)) fpp_qm_query_rl_t;
 
-#ifndef COMCERTO_2000
 #ifdef LS1043
 #define NUM_PQS		8
 #define NUM_WBFS	8
@@ -993,12 +961,6 @@ typedef struct fpp_qm_ingress_plcr_query_stats_cmd {
 	struct fpp_qm_ingress_policer_info policer_stats[FPP_NUM_INGRESS_POLICER_QUEUES];
 } __attribute__((__packed__)) fpp_qm_ingress_plcr_query_stats_cmd_t;
 
-#ifdef SEC_PROFILE_SUPPORT
-typedef struct fpp_qm_sec_plcr_query_stats_cmd {
-	uint32_t clear;
-	struct fpp_qm_ingress_policer_info policer_stats;
-} __attribute__((__packed__)) fpp_qm_sec_plcr_query_stats_cmd_t;
-#endif /* endif for SEC_PROFILE_SUPPORT */
 
 #else
 typedef struct fpp_qm_query_cmd
@@ -1018,56 +980,7 @@ typedef struct fpp_qm_query_cmd
     u_int16_t   max_qdepth[FPP_NUM_QUEUES];
 } __attribute__((__packed__)) fpp_qm_query_cmd_t;
 #endif
-#endif
 
-#if defined(COMCERTO_2000)
-typedef struct fpp_qm_query_portinfo_cmd
-{
-    u_int16_t   status;
-    u_int16_t   port;
-    u_int32_t   queue_qosenable_mask;       // bit mask of queues on which Qos is enabled
-    u_int16_t   max_txdepth;                // ignored on C2000
-    u_int8_t    ifg;
-    u_int8_t    unused;
-} __attribute__((__packed__)) fpp_qm_query_portinfo_cmd_t;
-
-typedef struct fpp_qm_query_queue_cmd
-{
-    u_int16_t   status;
-    u_int16_t   port;
-    u_int16_t   queue_num;
-    u_int16_t   qweight;
-    u_int16_t   max_qdepth;
-    u_int16_t   unused;
-} __attribute__((__packed__)) fpp_qm_query_queue_cmd_t;
-
-typedef struct fpp_qm_query_shaper_cmd
-{
-    u_int16_t   status;
-    u_int16_t   port;
-    u_int16_t   shaper_num;
-    u_int8_t    enabled;
-    u_int8_t    unused;
-    u_int32_t   qmask;
-    u_int32_t   rate;
-    u_int32_t   bucket_size;
-} __attribute__((__packed__)) fpp_qm_query_shaper_cmd_t;
-
-typedef struct fpp_qm_query_sched_cmd
-{
-    u_int16_t   status;
-    u_int16_t   port;
-    u_int16_t   sched_num;
-    u_int8_t    alg;
-    u_int8_t    unused;
-    u_int32_t   qmask;
-} __attribute__((__packed__)) fpp_qm_query_sched_cmd_t;
-
-typedef struct fpp_qm_reset_cmd {
-    u_int16_t   interface;
-    u_int16_t   pad;
-} __attribute__((__packed__)) fpp_qm_reset_cmd_t;
-#endif
 
 #ifdef LS1043
 typedef struct fpp_qm_reset_cmd {

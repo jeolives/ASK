@@ -1894,20 +1894,6 @@ static int cmmDPDSaQueryCmd(struct cli_def * cli, const char *command, char *arg
 	return CLI_OK;
 }
 
-#ifdef C2000_DPI
-/*****************************************************************
-* cmmDPIEnableCmd
-*
-*
-******************************************************************/
-static int cmmDPIEnableCmd(struct cli_def * cli, const char *command, char *argv[], int argc)
-{
-  /*Call RX process function*/
-  cmmDPIFlagSetProcess(argv, 0, globalConf.cli.daemon_handle);
-
-	return CLI_OK;
-}
-#endif
 
 /*****************************************************************
 * cmmAsymFFEnableCmd
@@ -2672,9 +2658,6 @@ int cmmCliInit(struct cmm_cli *ctx)
 		cli_register_command(ctx->handle, c, "relay", cmmRelayLocalShow, PRIVILEGE_UNPRIVILEGED, MODE_EXEC, "Show pppoe relay entries used by  the fast forwarded connections");
 		cli_register_command(ctx->handle, c, "mc6", cmmMc6Show, PRIVILEGE_UNPRIVILEGED, MODE_EXEC, "Show the table of V6 multicat listeners");
 		cli_register_command(ctx->handle, c, "mc4", cmmMc4Show, PRIVILEGE_UNPRIVILEGED, MODE_EXEC, "Show the table of V4 multicat listeners");
-#ifdef C2000_DPI
-		cli_register_command(ctx->handle, c, "dpi", cmmDPIEnableShow, PRIVILEGE_UNPRIVILEGED, MODE_EXEC, "Show the DPI flag status");
-#endif
 		cli_register_command(ctx->handle, c, "asym_fastforward", cmmAsymFFEnableShow, PRIVILEGE_UNPRIVILEGED, MODE_EXEC, "Show the Asymmetric fast forward status");
 		cli_register_command(ctx->handle, c, "asym_ff_rules", cmmFcAsymFFRulesShow, PRIVILEGE_UNPRIVILEGED, MODE_EXEC, "Show the table of asymmetric fast forwardable connections");
 	}
@@ -2737,9 +2720,6 @@ int cmmCliInit(struct cmm_cli *ctx)
 		cli_register_command(ctx->handle, c, "sa_query_timer", cmmDPDSaQueryCmd, PRIVILEGE_UNPRIVILEGED, MODE_EXEC, "Enable or disable SA query timer");
 		cli_register_command(ctx->handle, c, "config", cmmAltConfCmd, PRIVILEGE_UNPRIVILEGED, MODE_EXEC, "Manage Alternate Configuration module");
 		cli_register_command(ctx->handle, c, "bridge", cmmBridgeControlCmd, PRIVILEGE_UNPRIVILEGED, MODE_EXEC, "Manage automatic bridging");
-#ifdef C2000_DPI
-		cli_register_command(ctx->handle, c, "dpi", cmmDPIEnableCmd, PRIVILEGE_UNPRIVILEGED, MODE_EXEC, "Enable or disable Global DPI flag");
-#endif
 		cli_register_command(ctx->handle, c, "asym_fastforward", cmmAsymFFEnableCmd, PRIVILEGE_UNPRIVILEGED, MODE_EXEC, "Enable or disable Asymmetric Fast forward");
 	}
 

@@ -14,8 +14,6 @@
 #ifndef _AUTO_BRIDGE_PRIVATE_H
 #define _AUTO_BRIDGE_PRIVATE_H
 
-#include <linux/version.h>
-
 #define L2FLOW_HASH_TABLE_SIZE		1024
 #define L2FLOW_HASH_BY_MAC_TABLE_SIZE 	128
 
@@ -102,76 +100,15 @@ struct br_event_table
 	struct net_device *brdev;
 };
 
-#if LINUX_VERSION_CODE >= KERNEL_VERSION(3,6,0)
-#define NLA_PUT(skb, attrtype, attrlen, data) \
-        do { \
-                if (nla_put(skb, attrtype, attrlen, data)) \
-                        goto nla_put_failure; \
-        } while(0)
+extern u32 abm_hash_seed;
 
-#define NLA_PUT_U8(skb, attrtype, data) \
-        do { \
-                if (nla_put_u8(skb, attrtype, data)) \
-                        goto nla_put_failure; \
-        } while(0)
-
-#define NLA_PUT_U16(skb, attrtype, data) \
-        do { \
-                if (nla_put_u16(skb, attrtype, data)) \
-                        goto nla_put_failure; \
-        } while(0)
-
-#define NLA_PUT_U32(skb, attrtype, data) \
-        do { \
-                if (nla_put_u32(skb, attrtype, data)) \
-                        goto nla_put_failure; \
-        } while(0)
-#endif
-
-
-#define ABM_PRINT(type, info, args...) do {printk(type "ABM :" info, ## args);} while(0)
-
-static inline void print_l2flow(struct l2flow *l2flowtmp)
-{
-	ABM_PRINT(KERN_DEBUG, "  Saddr : %02x:%02x:%02x:%02x:%02x:%02x\n", l2flowtmp->saddr[0], l2flowtmp->saddr[1], l2flowtmp->saddr[2],
-															l2flowtmp->saddr[3], l2flowtmp->saddr[4], l2flowtmp->saddr[5]);
-	ABM_PRINT(KERN_DEBUG, "  Daddr : %02x:%02x:%02x:%02x:%02x:%02x\n", l2flowtmp->daddr[0], l2flowtmp->daddr[1], l2flowtmp->daddr[2],
-															l2flowtmp->daddr[3], l2flowtmp->daddr[4], l2flowtmp->daddr[5]);
-	ABM_PRINT(KERN_DEBUG, "  Ethertype : %04x\n", htons(l2flowtmp->ethertype));
-	ABM_PRINT(KERN_DEBUG, "  PPPoE Session id : %d\n", l2flowtmp->session_id);
-}
-
-#if 0
-static inline unsigned int abm_l2_flow_hash(u8 *saddr,  u8 *daddr, u16 ethertype, 
-	u32 session_id, u32 *ipsaddr, u32 *ipdaddr, u8 proto, u16 sport, u16 dport)
-{
-	u32 a, b, c, d , e;
-	
-	a = jhash((void *) saddr, 6, ethertype);
-	b = jhash((void *) daddr, 6, session_id);
-	c = 0;
-	d = 0;
-
-	if (ethertype == htons(ETH_P_IP))
-	{
-		c = jhash_2words(*ipsaddr, *ipdaddr, sport | (dport << 16));
-	}
-	else if (ethertype == htons(ETH_P_IPV6))
-	{
-		c = jhash2((void *) ipsaddr, 4, sport);
-		d =jhash2((void *) ipdaddr, 4, dport);
-	}
-	
-	return jhash_3words(a, b, c, d);
-}
-#endif
 static inline unsigned int abm_l2flow_hash(struct l2flow *l2flowtmp)
-{	
-	return (jhash(l2flowtmp, sizeof(struct l2flow), 0x12345678) & (L2FLOW_HASH_TABLE_SIZE - 1));
+{
+	return jhash(l2flowtmp, sizeof(struct l2flow), abm_hash_seed) & (L2FLOW_HASH_TABLE_SIZE - 1);
 }
 static inline unsigned int abm_l2flow_hash_mac(char *src_mac)
-{	
-	return (jhash(src_mac, ETH_ALEN, 0x12345678) & (L2FLOW_HASH_BY_MAC_TABLE_SIZE - 1));
+{
+	return jhash(src_mac, ETH_ALEN, abm_hash_seed) & (L2FLOW_HASH_BY_MAC_TABLE_SIZE - 1);
 }
 
 static inline int abm_l2flow_cmp(struct l2flow *flow_a, struct l2flow *flow_b);

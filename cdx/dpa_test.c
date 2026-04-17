@@ -70,39 +70,43 @@ int cdx_ioc_dpa_connadd(unsigned long args)
 	struct _tCtEntry *ct_entry;
 	RouteEntry *rt_entry;
 
+#define CDX_MAX_TEST_CONN		4096
+
 	if (copy_from_user(&add_conn, (void *)args,
 				sizeof(struct add_conn_info))) {
 		DPA_ERROR("%s::Read uspace args failed\n", __FUNCTION__);
 		return -EBUSY;
 	}
+	if (add_conn.num_conn == 0 || add_conn.num_conn > CDX_MAX_TEST_CONN) {
+		DPA_ERROR("%s::num_conn %u out of range\n",
+				__FUNCTION__, add_conn.num_conn);
+		return -EINVAL;
+	}
 	retval = 0;
 	ct = NULL;
 	rt = NULL;
-	conn_info = (struct test_conn_info *) 
-		kzalloc ((sizeof(struct test_conn_info) * add_conn.num_conn),
-				0);
+	conn_info = kcalloc(add_conn.num_conn, sizeof(*conn_info), GFP_KERNEL);
 	if (!conn_info) {
-		DPA_ERROR("%s::mem alloc for conn info failed\n", 
+		DPA_ERROR("%s::mem alloc for conn info failed\n",
 				__FUNCTION__);
-		retval = -ENOMEM;	
+		retval = -ENOMEM;
 		goto err_ret;
-
 	}
 	if (copy_from_user(conn_info, add_conn.conn_info,
-				(sizeof(struct test_conn_info) * add_conn.num_conn))) {
+			   add_conn.num_conn * sizeof(*conn_info))) {
 		DPA_ERROR("%s::Read uspace args failed\n",
 				__FUNCTION__);
 		retval = -EIO;
 		goto err_ret;
 	}
-	ct = kzalloc((sizeof(struct _tCtEntry) * 2), 0);
+	ct = kcalloc(2, sizeof(*ct), GFP_KERNEL);
 	if (!ct) {
-		retval = -ENOMEM;	
+		retval = -ENOMEM;
 		goto err_ret;
 	}
-	rt = kzalloc((sizeof(RouteEntry) * 2), 0);
+	rt = kcalloc(2, sizeof(*rt), GFP_KERNEL);
 	if (!rt) {
-		retval = -ENOMEM;	
+		retval = -ENOMEM;
 		goto err_ret;
 	}
 #ifdef DPA_TEST_DEBUG

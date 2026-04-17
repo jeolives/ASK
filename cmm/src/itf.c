@@ -33,7 +33,6 @@
 #include "route_cache.h"
 #include "module_rx.h"
 
-#if defined(LS1043)
 struct gemac_port port_table[GEM_PORTS] = {
 				   {"eth0", "wan", GEMAC_PORT_TYPE_WAN, 0, GEMAC0_PORT, 1},
 				   {"eth1", "lan1", GEMAC_PORT_TYPE_LAN, 0, GEMAC0_PORT + 1 , 1},
@@ -43,29 +42,6 @@ struct gemac_port port_table[GEM_PORTS] = {
 				   {"eth5", "wan3", GEMAC_PORT_TYPE_WAN, 0, GEMAC0_PORT + 5, 1},
 				   {"eth6", "wan5", GEMAC_PORT_TYPE_WAN, 0, GEMAC0_PORT + 6, 1}
 				};
-#elif defined(COMCERTO_2000) && !defined(LS1012A)
-struct gemac_port port_table[GEM_PORTS] = {
-				   {"eth0", "wan", GEMAC_PORT_TYPE_WAN, 0, GEMAC0_PORT, 1},
-				   {"eth2", "lan", GEMAC_PORT_TYPE_LAN, 0, GEMAC1_PORT, 1},
-				   {"eth3", "wan1", GEMAC_PORT_TYPE_WAN, 0, GEMAC2_PORT, 1}
-				};
-#elif defined(LS1012A)
-struct gemac_port port_table[GEM_PORTS] = {
-				   {"eth0", "wan", GEMAC_PORT_TYPE_WAN, 0, GEMAC0_PORT, 1},
-				   {"eth2", "lan", GEMAC_PORT_TYPE_LAN, 0, GEMAC1_PORT, 1},
-				};
-#elif defined(LS1088)
-struct gemac_port port_table[GEM_PORTS] = {
-				   {"eth0", "wan", GEMAC_PORT_TYPE_WAN, 0, GEMAC0_PORT, 1},
-				   {"eth2", "lan", GEMAC_PORT_TYPE_LAN, 0, GEMAC1_PORT, 1},
-				   {"eth3", "lan", GEMAC_PORT_TYPE_LAN, 0, GEMAC1_PORT, 1},
-				};
-#else
-struct gemac_port port_table[GEM_PORTS] = {
-				   {"eth0", "wan", GEMAC_PORT_TYPE_WAN, 0, GEMAC0_PORT, 1},
-				   {"eth2", "lan", GEMAC_PORT_TYPE_LAN, 0, GEMAC1_PORT, 1}
-				};
-#endif
 
 struct interface_table itf_table;
 
@@ -914,11 +890,6 @@ err:
 
 void __itf_put(struct interface *itf)
 {
-#if 0
-	itf->count--;
-	if (itf->count <= 0)
-		__itf_remove(itf);
-#endif
 }
 
 /* itf_match_src_ipaddr

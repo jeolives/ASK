@@ -198,155 +198,8 @@ unsigned char temp_ethhdr[16];
 	 So tailroom is introduced to allow the tail to grow upto 64 bytes */
 #define SKB_ASK_TAILROOM 	64
 
-#if LINUX_VERSION_CODE >= KERNEL_VERSION(5,4,3)
 bool a050385_check_skb(struct sk_buff *skb, struct dpa_priv_s *priv);
 struct sk_buff *a050385_realign_skb(struct sk_buff *skb, struct dpa_priv_s *priv);
-#else
-
-/* Realign the skb by copying its contents at the start of a newly allocated
- * page. Build a new skb around the new buffer and release the old one.
- * A performance drop should be expected.
- */
-static struct sk_buff *a010022_realign_skb(struct sk_buff *skb,
-		struct dpa_priv_s *priv)
-{
-	int trans_offset = skb_transport_offset(skb);
-	int net_offset = skb_network_offset(skb);
-	struct sk_buff *nskb = NULL;
-	int nsize, headroom;
-	struct page *npage;
-	void *npage_addr;
-
-	/* Guarantee the minimum required headroom */
-	headroom = priv->tx_headroom;
-
-	npage = alloc_page(GFP_ATOMIC);
-	if (unlikely(!npage)) {
-		WARN_ONCE(1, "Memory allocation failure\n");
-		return NULL;
-	}
-	npage_addr = page_address(npage);
-
-	/* For the new skb we only need the old one's data (both non-paged and
-	 * paged) and a headroom large enough to fit our private info. We can
-	 * skip the old tailroom.
-	 *
-	 * Make sure the new linearized buffer will not exceed a page's size.
-	 */
-	/* A new tailroom is introduced as there is a scope of growth of packet
-		 at tail when ucode adds headers to the original buffer */
-	nsize = SKB_DATA_ALIGN(skb->len + headroom + SKB_ASK_TAILROOM ) +
-		SKB_DATA_ALIGN(sizeof(struct skb_shared_info));
-	if (unlikely(nsize > 4096))
-		goto err;
-
-	nskb = build_skb(npage_addr, nsize);
-	if (unlikely(!nskb))
-		goto err;
-
-	/* Reserve only the needed headroom in order to guarantee the data's
-	 * alignment.
-	 * Code borrowed and adapted from skb_copy().
-	 */
-	skb_reserve(nskb, headroom);
-	skb_put(nskb, skb->len);
-	if (skb_copy_bits(skb, 0, nskb->data, skb->len)) {
-		WARN_ONCE(1, "skb parsing failure\n");
-		goto err;
-	}
-	copy_skb_header(nskb, skb);
-
-#ifdef CONFIG_FSL_DPAA_TS
-	/* Copy relevant timestamp info from the old skb to the new */
-	if (priv->ts_tx_en) {
-		skb_shinfo(nskb)->tx_flags = skb_shinfo(skb)->tx_flags;
-		skb_shinfo(nskb)->hwtstamps = skb_shinfo(skb)->hwtstamps;
-		skb_shinfo(nskb)->tskey = skb_shinfo(skb)->tskey;
-		if (skb->sk)
-			skb_set_owner_w(nskb, skb->sk);
-	}
-#endif
-	/* We move the headroom when we align it so we have to reset the
-	 * network and transport header offsets relative to the new data
-	 * pointer. The checksum offload relies on these offsets.
-	 */
-	skb_set_network_header(nskb, net_offset);
-	skb_set_transport_header(nskb, trans_offset);
-
-	/* We don't want the buffer to be recycled so we mark it accordingly */
-	nskb->mark = NONREC_MARK;
-
-	dev_kfree_skb(skb);
-	return nskb;
-
-err:
-	if (nskb)
-		dev_kfree_skb(nskb);
-	put_page(npage);
-	return NULL;
-}
-
-/* Verify the conditions that trigger the A010022 errata: data unaligned to
- * 16 bytes and 4K memory address crossings.
- */
-static bool a010022_check_skb(struct sk_buff *skb, struct dpa_priv_s *priv)
-{
-	int nr_frags, i = 0;
-	skb_frag_t *frag;
-	/* Check if the headroom is aligned */
-	if (((uintptr_t)skb->data - priv->tx_headroom) %
-			priv->buf_layout[TX].data_align != 0) {
-#ifdef DPA_WIFI_DEBUG
-		DPAWIFI_INFO("%s:%d %p : %x : %x \n", __func__, __LINE__, skb->data, priv->tx_headroom, priv->buf_layout[TX].data_align);
-#endif
-		return true;
-	}
-
-	/* Check if the headroom crosses a boundary */
-	if (HAS_DMA_ISSUE(skb->head, skb_headroom(skb))) {
-#ifdef DPA_WIFI_DEBUG
-		DPAWIFI_INFO("%s:%d\n", __func__, __LINE__);
-#endif
-		return true;
-	}
-
-	/* Check if the non-paged data crosses a boundary */
-	if (HAS_DMA_ISSUE(skb->data, skb_headlen(skb))) {
-#ifdef DPA_WIFI_DEBUG
-		DPAWIFI_INFO("%s:%d\n", __func__, __LINE__);
-#endif
-		return true;
-	}
-
-	/* Check if the entire linear skb crosses a boundary */
-	if (HAS_DMA_ISSUE(skb->head, skb_end_offset(skb))) {
-#ifdef DPA_WIFI_DEBUG
-		DPAWIFI_INFO("%s:%d\n", __func__, __LINE__);
-#endif
-		return true;
-	}
-
-	nr_frags = skb_shinfo(skb)->nr_frags;
-
-	while (i < nr_frags) {
-		frag = &skb_shinfo(skb)->frags[i];
-
-		/* Check if a paged fragment crosses a boundary from its
-		 * offset to its end.
-		 */
-		if (HAS_DMA_ISSUE(frag->page_offset, frag->size)) {
-#ifdef DPA_WIFI_DEBUG
-			DPAWIFI_INFO("%s:%d\n", __func__, __LINE__);
-#endif
-			return true;
-		}
-
-		i++;
-	}
-
-	return false;
-}
-#endif
 
 /* This function will return 1 if the device is cellular (i.e no_l2_itf) */
 int vwd_is_no_l2_itf_device(struct net_device* dev)
@@ -450,22 +303,24 @@ static ssize_t vwd_show_vap_stats(struct device *dev, struct device_attribute *a
 		total_stats.pkts_slow_path_drop += per_cpu_stats->pkts_slow_path_drop;
 	}
 
-	len += sprintf(buf, "VAP (id : %d  name : %s)\n",ii,priv->vaps[ii].ifname);
-	len += sprintf(buf + len, "\nTo DPAA\n");
-	len += sprintf(buf + len, "  WiFi Rx pkts from route hook : %u\n", total_stats.pkts_tx_route);
-	len += sprintf(buf + len, "  WiFi Rx pkts from bridge hook : %u\n", total_stats.pkts_tx_bridge);
-	len += sprintf(buf + len, "  WiFi Rx pkts from direct rx : %u\n", total_stats.pkts_direct_rx);
-	len += sprintf(buf + len, "  WiFi Rx pkts submitted to DPAA : %u\n", total_stats.pkts_transmitted);
-	len += sprintf(buf + len, "  WiFi local Tx pkts submitted to DPAA : %u\n", total_stats.pkts_local_tx_dpaa);
-	len += sprintf(buf + len, "  Drops while sending it to DPAA : %u\n", total_stats.pkts_tx_dropped);
-	len += sprintf(buf + len, "  WiFI OH buf threshold Drops : %u\n", total_stats.pkts_oh_buf_threshold_drop);
-	len += sprintf(buf + len, "  SG packets|No head room|non linear|cloned|realign - %x : %x : %x : %x : %x\n", total_stats.pkts_tx_sg, total_stats.pkts_tx_no_head, total_stats.pkts_tx_non_linear, total_stats.pkts_tx_cloned, total_stats.pkts_tx_realign);
+	len += sysfs_emit_at(buf, len, "VAP (id : %d  name : %s)\n", ii, priv->vaps[ii].ifname);
+	len += sysfs_emit_at(buf, len, "\nTo DPAA\n");
+	len += sysfs_emit_at(buf, len, "  WiFi Rx pkts from route hook : %u\n", total_stats.pkts_tx_route);
+	len += sysfs_emit_at(buf, len, "  WiFi Rx pkts from bridge hook : %u\n", total_stats.pkts_tx_bridge);
+	len += sysfs_emit_at(buf, len, "  WiFi Rx pkts from direct rx : %u\n", total_stats.pkts_direct_rx);
+	len += sysfs_emit_at(buf, len, "  WiFi Rx pkts submitted to DPAA : %u\n", total_stats.pkts_transmitted);
+	len += sysfs_emit_at(buf, len, "  WiFi local Tx pkts submitted to DPAA : %u\n", total_stats.pkts_local_tx_dpaa);
+	len += sysfs_emit_at(buf, len, "  Drops while sending it to DPAA : %u\n", total_stats.pkts_tx_dropped);
+	len += sysfs_emit_at(buf, len, "  WiFI OH buf threshold Drops : %u\n", total_stats.pkts_oh_buf_threshold_drop);
+	len += sysfs_emit_at(buf, len, "  SG packets|No head room|non linear|cloned|realign - %x : %x : %x : %x : %x\n",
+			     total_stats.pkts_tx_sg, total_stats.pkts_tx_no_head, total_stats.pkts_tx_non_linear,
+			     total_stats.pkts_tx_cloned, total_stats.pkts_tx_realign);
 
-	len += sprintf(buf + len, "From DPAA\n");
-	len += sprintf(buf + len, "  WiFi Rx pkts : %u \n", total_stats.pkts_slow_forwarded);
-	len += sprintf(buf + len, "  WiFi Tx pkts : %u \n", total_stats.pkts_rx_fast_forwarded);
-	len += sprintf(buf + len, "  WiFi Tx ipsec pkts : %u\n", total_stats.pkts_rx_ipsec);
-	len += sprintf(buf + len, "  WiFI Rx slow path drops : %u\n", total_stats.pkts_slow_path_drop);
+	len += sysfs_emit_at(buf, len, "From DPAA\n");
+	len += sysfs_emit_at(buf, len, "  WiFi Rx pkts : %u \n", total_stats.pkts_slow_forwarded);
+	len += sysfs_emit_at(buf, len, "  WiFi Tx pkts : %u \n", total_stats.pkts_rx_fast_forwarded);
+	len += sysfs_emit_at(buf, len, "  WiFi Tx ipsec pkts : %u\n", total_stats.pkts_rx_ipsec);
+	len += sysfs_emit_at(buf, len, "  WiFI Rx slow path drops : %u\n", total_stats.pkts_slow_path_drop);
 
 	return len;
 }
@@ -491,43 +346,18 @@ static ssize_t vwd_show_dump_stats(struct device *dev, struct device_attribute *
 		total_stats.pkts_dev_down_drop += per_cpu_stats->pkts_dev_down_drop;
 	}
 
-	len += sprintf(buf + len, "\nStatus\n");
-	len += sprintf(buf + len, "  Fast path - %s\n", priv->fast_path_enable ? "Enable" : "Disable");
+	len += sysfs_emit_at(buf, len, "\nStatus\n");
+	len += sysfs_emit_at(buf, len, "  Fast path - %s\n", priv->fast_path_enable ? "Enable" : "Disable");
 	percpu_var_sum(num_tx_done, total_num_tx_done);
-	len += sprintf(buf + len, "  tx_sent:done  %u:%u\n", num_tx_sent, total_num_tx_done);
+	len += sysfs_emit_at(buf, len, "  tx_sent:done  %u:%u\n", num_tx_sent, total_num_tx_done);
 
-	len += sprintf(buf + len, "\nTo DPAA\n");
-	len += sprintf(buf + len, "  WiFi local Tx pkts : %u\n", total_stats.pkts_total_local_tx);
+	len += sysfs_emit_at(buf, len, "\nTo DPAA\n");
+	len += sysfs_emit_at(buf, len, "  WiFi local Tx pkts : %u\n", total_stats.pkts_total_local_tx);
 
-	len += sprintf(buf + len, "From DPAA\n");
-	len += sprintf(buf + len, "  WiFI Rx Fails : %u\n", total_stats.pkts_slow_fail);
-	len += sprintf(buf + len, "  WiFI Device Down Drops : %u\n", total_stats.pkts_dev_down_drop);
+	len += sysfs_emit_at(buf, len, "From DPAA\n");
+	len += sysfs_emit_at(buf, len, "  WiFI Rx Fails : %u\n", total_stats.pkts_slow_fail);
+	len += sysfs_emit_at(buf, len, "  WiFI Device Down Drops : %u\n", total_stats.pkts_dev_down_drop);
 
-#if 0
-	len += sprintf(buf + len, "VAPs Configuration  : \n");
-	for (ii = 0; ii < MAX_WIFI_VAPS; ii++) {
-		struct vap_desc_s *vap;
-
-		vap = &priv->vaps[ii];
-
-		if (vap->state == VAP_ST_CLOSE)
-			continue;
-
-		len += sprintf(buf + len, "VAP Name : %s \n", vap->ifname);
-		len += sprintf(buf + len, "     Id             : %d \n", vap->vapid);
-		len += sprintf(buf + len, "     Index          : %d \n", vap->ifindex);
-		len += sprintf(buf + len, "     State          : %s \n", (vap->state  == VAP_ST_OPEN) ? "OPEN":"CLOSED");
-		len += sprintf(buf + len, "     CPU Affinity   : %d \n", vap->cpu_id);
-		len += sprintf(buf + len, "     Direct Rx path : %s \n", vap->direct_rx_path ? "ON":"OFF");
-		len += sprintf(buf + len, "     Direct Tx path : %s \n", vap->direct_tx_path ? "ON":"OFF");
-		len += sprintf(buf + len, "     No L2 interface:%d\n",vap->no_l2_itf);
-#if LINUX_VERSION_CODE >= KERNEL_VERSION(3,6,0)
-		len += sprintf(buf + len, "     Dev features   : VAP: %llx WiFi: %llx \n\n", vap->dev->features, vap->wifi_dev ? vap->wifi_dev->features:0);
-#else
-		len += sprintf(buf + len, "     Dev features   : VAP: %x WiFi: %x \n\n", vap->dev->features, vap->wifi_dev ? vap->wifi_dev->features:0);
-#endif
-	}
-#endif
 	return len;
 }
 
@@ -540,7 +370,7 @@ static ssize_t vwd_show_fast_path_enable(struct device *dev, struct device_attri
 	struct dpaa_vwd_priv_s *priv = &vwd;
 	int idx;
 
-	idx = sprintf(buf, "\n%d\n", priv->fast_path_enable);
+	idx = sysfs_emit(buf, "\n%d\n", priv->fast_path_enable);
 	return idx;
 }
 
@@ -573,7 +403,7 @@ static ssize_t vwd_show_oh_buff_limit(struct device *dev, struct device_attribut
 {
 	int idx;
 
-	idx = sprintf(buf, "\n%d\n", oh_buff_limit);
+	idx = sysfs_emit(buf, "\n%d\n", oh_buff_limit);
 	return idx;
 }
 
@@ -606,16 +436,6 @@ static int dpaa_vwd_sysfs_init( struct dpaa_vwd_priv_s *priv )
 	if (device_create_file(priv->vwd_device, &dev_attr_vwd_fast_path_enable))
 		goto err_fp_en;
 
-#if 0
-	if ((vwd_ofld == PFE_VWD_NAS_MODE ) && device_create_file(priv->vwd_device, &dev_attr_vwd_vap_create))
-		goto err_vap_add;
-
-	if ((vwd_ofld == PFE_VWD_NAS_MODE) && device_create_file(priv->vwd_device, &dev_attr_vwd_vap_reset))
-		goto err_vap_del;
-
-	if (device_create_file(vwd->vwd_device, &dev_attr_vwd_tso_stats))
-		goto err_tso_stats;
-#endif
 
 #ifdef VWD_NAPI_STATS
 	if (device_create_file(priv->vwd_device, &dev_attr_vwd_napi_stats))
@@ -649,15 +469,6 @@ err_napi:
 	device_remove_file(priv->vwd_device, &dev_attr_vwd_tso_stats);
 #endif
 
-#if 0
-err_tso_stats:
-	if (vwd_ofld == VWD_NAS_MODE)
-		device_remove_file(priv->vwd_device, &dev_attr_vwd_vap_reset);
-err_vap_del:
-	if (vwd_ofld == VWD_NAS_MODE)
-		device_remove_file(priv->vwd_device, &dev_attr_vwd_vap_create);
-err_rt:
-#endif
 	device_remove_file(priv->vwd_device, &dev_attr_vwd_fast_path_enable);
 err_fp_en:
 	device_remove_file(priv->vwd_device, &dev_attr_vwd_debug_stats);
@@ -673,23 +484,10 @@ static void dpaa_vwd_sysfs_exit(void)
 {
 	struct dpaa_vwd_priv_s *priv = &vwd;
 
-#if 0
-	device_remove_file(priv->vwd_device, &dev_attr_vwd_tso_stats);
-#ifdef PFE_VWD_LRO_STATS
-	device_remove_file(priv->vwd_device, &dev_attr_vwd_lro_len_stats);
-	device_remove_file(priv->vwd_device, &dev_attr_vwd_lro_nb_stats);
-#endif
-#endif
 
 	device_remove_file(priv->vwd_device, &dev_attr_vwd_oh_buff_limit);
 #ifdef PFE_VWD_NAPI_STATS
 	device_remove_file(priv->vwd_device, &dev_attr_vwd_napi_stats);
-#endif
-#if 0
-	if (vwd_ofld == PFE_VWD_NAS_MODE) {
-		device_remove_file(priv->vwd_device, &dev_attr_vwd_vap_create);
-		device_remove_file(priv->vwd_device, &dev_attr_vwd_vap_reset);
-	}
 #endif
 	device_remove_file(priv->vwd_device, &dev_attr_vwd_fast_path_enable);
 	device_remove_file(priv->vwd_device, &dev_attr_vwd_debug_stats);
@@ -1308,7 +1106,6 @@ static struct sk_buff *__hot contig_fd_to_vwd_skb(const struct dpa_priv_s *priv,
 
 }
 
-#if LINUX_VERSION_CODE >= KERNEL_VERSION(5,4,3)
 static int dpaa_vwd_send_packet(struct dpaa_vwd_priv_s *priv ,void *vap_handle, struct sk_buff *skb)
 {
 	struct vap_desc_s *vap_dev;
@@ -1511,181 +1308,6 @@ skb_to_fd_failed:
 
 	return -1;
 }
-#else /*Linux 4_14 */
-static int dpaa_vwd_send_packet(struct dpaa_vwd_priv_s *priv ,void *vap_handle, struct sk_buff *skb)
-{
-	struct vap_desc_s *vap_dev;
-	struct qm_fd fd;
-	struct dpa_bp *dpa_bp;
-	int err = 0, i;
-	int sg_flag  = 0;
-#ifndef DPA_SG_SUPPORT
-	int offset,  nonlinear = 0;
-#endif
-	struct bm_buffer bmb;
-	unsigned int total_num_tx_done;
-
-	vap_dev = (struct vap_desc_s *)vap_handle;
-	//printk("<<<<<<<<<<<<\n");
-	//printk("%s::pkt %p data %p\n", __FUNCTION__, skb, skb->data);
-	//display_buf(skb->data, skb->len);
-
-	percpu_var_sum(num_tx_done, total_num_tx_done);
-	if ( (num_tx_sent - total_num_tx_done) >= (VAP_SG_BUF_COUNT >> 4))
-		drain_bp_tx_done_bpool(priv->txconf_bp);
-
-	percpu_var_sum(num_tx_done, total_num_tx_done);
-	if ((num_tx_sent - total_num_tx_done) > oh_buff_limit)
-	{
-		INCR_PER_CPU_STAT(vap_dev->vap_stats, pkts_oh_buf_threshold_drop);
-		dev_kfree_skb(skb);
-		return NETDEV_TX_OK;
-	}
-
-
-#ifndef CONFIG_PPC
-
-	if (unlikely(dpaa_errata_a010022) && a010022_check_skb(skb, priv->eth_priv)) {
-		//printk("%s:%d addr : %p len : %d\n", __func__, __LINE__, skb->head, skb->len);
-		INCR_PER_CPU_STAT(vap_dev->vap_stats, pkts_tx_realign);
-		skb = a010022_realign_skb(skb, priv->eth_priv);
-		if (!skb)
-			goto skb_to_fd_failed;
-	}
-#endif
-
-	memset(&fd, 0, sizeof(struct qm_fd));
-
-#ifdef DPA_SG_SUPPORT
-	err = custom_vwd_skb_to_sg_fd(priv, skb, &fd);
-	INCR_PER_CPU_STAT(vap_dev->vap_stats, pkts_tx_sg);
-#else
-	nonlinear = skb_is_nonlinear(skb);
-
-	/* MAX_SKB_FRAGS is larger than our DPA_SGT_MAX_ENTRIES; make sure
-	 * we don't feed FMan with more fragments than it supports.
-	 * Btw, we're using the first sgt entry to store the linear part of
-	 * the skb, so we're one extra frag short.
-	 */
-	if (nonlinear &&
-			likely(skb_shinfo(skb)->nr_frags < DPA_SGT_MAX_ENTRIES)) {
-
-		INCR_PER_CPU_STAT(vap_dev->vap_stats, pkts_tx_sg);
-
-		/* Just create a S/G fd based on the skb */
-		err = vwd_skb_to_sg_fd(priv, skb, &fd);
-		sg_flag = 1;
-	} else {
-		/* Make sure we have enough headroom to accommodate private
-		 * data, parse results, etc. Normally this shouldn't happen if
-		 * we're here via the standard kernel stack.
-		 */
-		if (unlikely(skb_headroom(skb) < priv->eth_priv->tx_headroom)) {
-			struct sk_buff *skb_new;
-
-			INCR_PER_CPU_STAT(vap_dev->vap_stats, pkts_tx_no_head);
-			skb_new = skb_realloc_headroom(skb, priv->eth_priv->tx_headroom);
-			if (unlikely(!skb_new)) {
-				dev_kfree_skb(skb);
-				return NETDEV_TX_OK;
-			}
-			dev_kfree_skb(skb);
-			skb = skb_new;
-		}
-
-		/* We're going to store the skb backpointer at the beginning
-		 * of the data buffer, so we need a privately owned skb
-		 */
-
-		/* Code borrowed from skb_unshare(). */
-		if (skb_cloned(skb)) {
-			struct sk_buff *nskb = NULL;
-			if(skb_headroom(skb) >= MAX_HEAD_ROOM_LEN) {
-				nskb = skb_copy_expand(skb,priv->eth_priv->tx_headroom,skb_tailroom(skb),GFP_ATOMIC);
-			}
-			else {
-				nskb = skb_copy(skb, GFP_ATOMIC);
-			}
-			kfree_skb(skb);
-			skb = nskb;
-			INCR_PER_CPU_STAT(vap_dev->vap_stats, pkts_tx_cloned);
-#ifndef CONFIG_PPC
-			if (unlikely(dpaa_errata_a010022) &&
-					a010022_check_skb(skb, priv->eth_priv)) {
-				skb = a010022_realign_skb(skb, priv->eth_priv);
-				if (!skb)
-					goto skb_to_fd_failed;
-			}
-#endif
-			/* skb_copy() has now linearized the skbuff. */
-		} else if (unlikely(nonlinear)) {
-			INCR_PER_CPU_STAT(vap_dev->vap_stats, pkts_tx_non_linear);
-			/* We are here because the egress skb contains
-			 * more fragments than we support. In this case,
-			 * we have no choice but to linearize it ourselves.
-			 */
-			err = __skb_linearize(skb);
-		}
-		if (unlikely(!skb || err < 0))
-			/* Common out-of-memory error path */
-			goto qman_enq_failed;
-
-		err = vwd_skb_to_contig_fd(priv, skb, &fd, &offset);
-	}
-#endif
-
-	if (unlikely(err < 0))
-	{
-#ifdef DPA_SG_SUPPORT
-		DPAWIFI_ERROR("%s:: custom_vwd_skb_to_sg_fd failed\n", __FUNCTION__);
-#else
-		DPAWIFI_ERROR("%s::vwd_skb_to_contig_fd failed\n", __FUNCTION__);
-#endif
-		goto skb_to_fd_failed;
-	}
-#ifdef DPA_WIFI_DEBUG
-	DPAWIFI_INFO("%s::fqid %d(%x) cmd %08x, physaddr %llx\n", __FUNCTION__, 
-			vap_dev->wlan_fq_to_fman->fqid,
-			vap_dev->wlan_fq_to_fman->fqid, fd.cmd, (uint64_t)fd.addr);
-#endif
-	for (i = 0; i < 100000; i++) {
-		err = qman_enqueue(&vap_dev->wlan_fq_to_fman->fq_base, &fd, 0);
-		if (err != -EBUSY) {
-			//DPAWIFI_ERROR("%s:%d :qman_enqueue failed\n", __FUNCTION__, __LINE__);
-			break;
-
-		}
-	}
-
-
-	//if (qman_enqueue(&vap_dev->wlan_fq_to_fman->fq_base, &fd, 0)) {
-	if (err < 0) {
-		DPAWIFI_ERROR("%s:%d :qman_enqueue failed\n", __FUNCTION__, __LINE__);
-		goto qman_enq_failed;
-	}
-	num_tx_sent++;
-	INCR_PER_CPU_STAT(vap_dev->vap_stats, pkts_transmitted);
-	return 0;
-
-qman_enq_failed:
-	INCR_PER_CPU_STAT(vap_dev->vap_stats, pkts_tx_dropped);
-	if (sg_flag) {
-		dpa_bp = dpa_bpid2pool(fd.bpid);
-
-		memset(&bmb, 0, sizeof(struct bm_buffer));
-
-		bmb.bpid = fd.bpid;
-		bmb.addr = fd.addr;
-		while (bman_release(dpa_bp->pool, &bmb, 1, 0))
-			cpu_relax();
-	}
-
-skb_to_fd_failed:
-	dev_kfree_skb(skb);
-
-	return -1;
-}
-#endif
 
 static int process_rx_exception_pkt(struct qman_portal *portal, struct qman_fq *fq,
 		const struct qm_dqrr_entry *dq)
@@ -1827,7 +1449,7 @@ static int add_device_tx_bpool(struct dpaa_vwd_priv_s  *vwd)
 	int buffer_count = 0, ret = 0, refill_cnt ;
 
 
-	bp = kzalloc(sizeof(struct dpa_bp), 0);
+	bp = kzalloc(sizeof(struct dpa_bp), GFP_KERNEL);
 	if (unlikely(bp == NULL)) {
 		DPAWIFI_ERROR("%s::failed to allocate mem for bman pool for dev %s\n",
 				__FUNCTION__,vwd->name);
@@ -1936,13 +1558,8 @@ static void vwd_send_to_vap(struct sk_buff* skb)
 	hdr = (struct ethhdr *)skb->data;
 	skb->protocol = hdr->h_proto;
 
-#if (LINUX_VERSION_CODE < KERNEL_VERSION(2,6,22))
-	skb->mac.raw = skb->data;
-	skb->nh.raw = skb->data + sizeof(struct ethhdr);
-#else
 	skb_reset_mac_header(skb);
 	skb_set_network_header(skb, sizeof(struct ethhdr));
-#endif
 	skb->priority = 0;
 	original_dev_queue_xmit(skb);
 	return;
@@ -2297,7 +1914,7 @@ static int create_vap_fwd_from_fman_fqs(struct vap_desc_s *vap, void *proc_entry
 		uint32_t flags;
 
 		/* create FQ for forward from DPAA to wireless interface */
-		dpa_fq = kzalloc(sizeof(struct dpa_fq), 0);
+		dpa_fq = kzalloc(sizeof(struct dpa_fq), GFP_KERNEL);
 
 		if (!dpa_fq) {
 			DPAWIFI_ERROR("%s::unable to alloc mem for dpa_fq\n", __FUNCTION__) ;
@@ -2408,7 +2025,7 @@ static int create_vap_fqs(struct vap_desc_s *vap)
 
 
 	/* create FQ for exception packets from wireless interface */
-	dpa_fq = kzalloc(sizeof(struct dpa_fq), 0);
+	dpa_fq = kzalloc(sizeof(struct dpa_fq), GFP_KERNEL);
 	if (!dpa_fq) {
 		DPAWIFI_ERROR("%s::unable to alloc mem for dpa_fq\n", __FUNCTION__) ;
 		return -1;
@@ -2542,93 +2159,6 @@ int dpaa_get_wifi_ohport_handle( uint32_t* oh_handle)
 	*oh_handle = vwd.oh_port_handle;
 	return 0;
 }
-#if 0
-//call under vaplock, retuenrs true if device is found
-static int find_vapdev_by_name(char *devname, struct vap_desc_s **freedev)
-{
-	int retval;
-	uint16_t ii;
-	struct vap_desc_s *vapdev;
-	struct vap_desc_s *freevapdev;
-
-	vapdev = &vwd.vaps[0];
-	freevapdev = NULL;
-	retval = 0;
-	for (ii = 0; ii < MAX_WIFI_VAPS; ii++) {
-		if (vapdev->state == VAP_ST_CLOSE) {
-			if (!freevapdev) {
-				freevapdev = vapdev;
-				vapdev->vapid = ii;
-				vapdev->vwd = &vwd;
-			}
-		} else {
-			if (!strcmp(devname, vapdev->ifname)) {
-				DPAWIFI_ERROR("%s::device %s already associated\n", 
-						__FUNCTION__, devname);
-				retval = 1;
-				break;
-			}
-		}
-		vapdev++;
-	}
-	if (freedev)
-		*freedev = freevapdev;
-	return retval;
-}
-
-static int fill_sg_pool(struct dpa_bp *bp)
-{
-	void *new_buf;
-	dma_addr_t addr;
-	struct page *new_page;
-	struct bm_buffer bmb[8];
-	uint32_t count;
-	uint32_t fill_count;
-	uint32_t ii;
-	int err;
-	struct device *dev;
-
-	dev = bp->dev;
-	count = 0;
-	err = 0;
-	while(1) {
-		fill_count = (bp->config_count - count);
-		if (!fill_count)
-			break;
-		if (fill_count > 8)
-			fill_count = 8;
-		for (ii = 0; ii < fill_count; ii++) {
-			new_page = alloc_page(GFP_ATOMIC);
-			if (unlikely(!new_page)) {
-				err = -1;
-				break;
-			}
-			new_buf = page_address(new_page);
-			get_skb_from_sg_list(new_buf + VAP_SG_BUF_HEAD_ROOM);
-			addr = dma_map_single(dev, new_buf,
-					bp->size, DMA_BIDIRECTIONAL);
-			if (unlikely(dma_mapping_error(dev, addr))) {
-				err = -1;
-				kfree(new_buf);
-				break;
-			}
-			bm_buffer_set64(&bmb[ii], addr);
-			bmb[ii].bpid = bp->bpid;
-		}
-		count += ii;
-		if (ii) {
-			while (unlikely(bman_release(bp->pool, bmb, ii, 0)))
-				cpu_relax();
-		}
-		if (err)
-			break;
-	}
-	printk("%s::filled %d buffers into pool %d\n", __FUNCTION__,
-			count, bp->bpid);
-	return 0;
-}
-
-#endif
 
 static int add_device_tx_done_bpool(struct dpaa_vwd_priv_s  *vwd)
 {
@@ -2641,7 +2171,7 @@ static int add_device_tx_done_bpool(struct dpaa_vwd_priv_s  *vwd)
 	}
 	bp_parent = dpa_bpid2pool(vwd->parent_pool_info.pool_id);
 
-	bp = kzalloc(sizeof(struct dpa_bp), 0);
+	bp = kzalloc(sizeof(struct dpa_bp), GFP_KERNEL);
 
 	if (unlikely(bp == NULL)) {
 		DPAWIFI_ERROR("%s::failed to allocate mem for bman pool for dev %s\n",
@@ -2800,21 +2330,6 @@ static int vwd_vap_up(struct dpaa_vwd_priv_s *priv, struct vap_desc_s *vap, stru
 		dev_put(wifi_dev);
 		return -1;
 	}
-#if 0
-	//get free vap instance
-	if (find_vapdev_by_name(&cmd->ifname[0], &vap)) {
-		DPAWIFI_ERROR("%s::device %s already associated\n", 
-				__FUNCTION__, &cmd->ifname[0]);
-		dev_put(wifi_dev);
-		return -1;
-	}
-	if (!vap) {
-		DPAWIFI_ERROR("%s:: no free vap instance for device %s\n", 
-				__FUNCTION__, &cmd->ifname[0]);
-		dev_put(wifi_dev);
-		return -1;
-	}
-#endif
 	if (get_ofport_info(FMAN_IDX, priv->oh_port_handle, &vap->channel, 
 				&vap->td[0])) 
 	{
@@ -3037,13 +2552,6 @@ static int dpaa_vwd_handle_vap( struct dpaa_vwd_priv_s *priv, struct vap_cmd_s *
  */
 static int dpaa_vwd_open(struct inode *inode, struct file *file)
 {
-#if 0
-	//allow only one open instance
-	if (!atomic_dec_and_test(&dpa_vwd_open_count)) {
-		atomic_inc(&dpa_vwd_open_count);
-		return -EBUSY;
-	}
-#endif
 	int result = 0;
 	unsigned dev_minor = iminor(inode);
 
@@ -3072,10 +2580,6 @@ out:
 static int dpaa_vwd_close(struct inode * inode, struct file * file)
 {
 	DPAWIFI_INFO("%s TODO \n", __func__);
-#if 0
-	//TBD - recover resources here
-	atomic_inc(&dpa_vwd_open_count);
-#endif
 	return 0;
 }
 
@@ -3258,37 +2762,14 @@ static int dpaa_vwd_up(struct dpaa_vwd_priv_s *priv )
 #ifdef DPA_WIFI_DEBUG
 	DPAWIFI_INFO("%s::\n", __func__);
 #endif
-#if LINUX_VERSION_CODE >= KERNEL_VERSION(4,14,0)
 	nf_register_net_hook(&init_net, &vwd_hook);
 	nf_register_net_hook(&init_net, &vwd_hook_ipv6);
 	nf_register_net_hook(&init_net, &vwd_hook_bridge);
-#else
-	nf_register_hook(&vwd_hook);
-	nf_register_hook(&vwd_hook_ipv6);
-	nf_register_hook(&vwd_hook_bridge);
-#endif
 
 	priv->fast_path_enable = 1;
 	if (dpaa_vwd_sysfs_init(priv))
 		goto err0;
 	wifi_rx_fastpath_register(vwd_wifi_if_send_pkt);
-#if 0
-	if (vwd_ofld == PFE_VWD_NAS_MODE) {
-		register_netdevice_notifier(&vwd_vap_notifier);
-	}
-
-	/* supported features */
-	priv->vap_dev_hw_features =
-		NETIF_F_RXCSUM | NETIF_F_IP_CSUM |  NETIF_F_IPV6_CSUM |
-		NETIF_F_SG | NETIF_F_TSO;
-
-	/* enabled by default */
-	if (lro_mode) {
-		priv->vap_dev_hw_features |= NETIF_F_LRO;
-	}
-
-	priv->vap_dev_features = priv->vap_dev_hw_features;
-#endif
 
 #ifdef DPA_WIFI_DEBUG
 	DPAWIFI_INFO("%s: End\n", __func__);
@@ -3296,15 +2777,9 @@ static int dpaa_vwd_up(struct dpaa_vwd_priv_s *priv )
 	return 0;
 
 err0:
-#if LINUX_VERSION_CODE >= KERNEL_VERSION(4,14,0)
 	nf_unregister_net_hook(&init_net, &vwd_hook);
 	nf_unregister_net_hook(&init_net, &vwd_hook_ipv6);
 	nf_unregister_net_hook(&init_net, &vwd_hook_bridge);
-#else
-	nf_unregister_hook(&vwd_hook);
-	nf_unregister_hook(&vwd_hook_ipv6);
-	nf_unregister_hook(&vwd_hook_bridge);
-#endif
 
 	return -1;
 
@@ -3321,15 +2796,9 @@ static int dpaa_vwd_down( struct dpaa_vwd_priv_s *priv )
 	DPAWIFI_INFO( "%s: %s\n", priv->name, __func__);
 #endif
 	wifi_rx_fastpath_unregister();
-#if LINUX_VERSION_CODE >= KERNEL_VERSION(4,14,0)
 	nf_unregister_net_hook(&init_net, &vwd_hook);
 	nf_unregister_net_hook(&init_net, &vwd_hook_ipv6);
 	nf_unregister_net_hook(&init_net, &vwd_hook_bridge);
-#else
-	nf_unregister_hook(&vwd_hook);
-	nf_unregister_hook(&vwd_hook_ipv6);
-	nf_unregister_hook(&vwd_hook_bridge);
-#endif
 
 	for (ii = 0; ii < MAX_WIFI_VAPS; ii++)
 	{
@@ -3350,33 +2819,13 @@ static int dpaa_vwd_down( struct dpaa_vwd_priv_s *priv )
 				 * using this field to store the vap_desc_t structure pointer
 				 */
 				wifi_dev->wifi_offload_dev = NULL;
-#if 0
-				if (wifi_dev->wifi_offload_dev) {
-					wifi_dev->ethtool_ops = vap->wifi_ethtool_ops;
-					wifi_dev->wifi_offload_dev = NULL;
-					wifi_dev->hw_features = vap->wifi_hw_features;
-					wifi_dev->features = vap->wifi_features;
-				}
-#endif
 				dev_put(wifi_dev);
 			}
 
-#if 0
-			sysfs_remove_group(vap->vap_kobj, &vap_attr_group);
-			kobject_put(vap->vap_kobj);
-			dev_deactivate(vap->dev);
-			unregister_netdev(vap->dev);
-			free_netdev(vap->dev);
-#endif
 			vap->state = VAP_ST_CLOSE;
 		}
 	}
 
-#if 0
-	if (vwd_ofld == PFE_VWD_NAS_MODE) {
-		unregister_netdevice_notifier(&vwd_vap_notifier);
-	}
-#endif
 
 	priv->vap_count = 0;
 	dpaa_vwd_sysfs_exit();

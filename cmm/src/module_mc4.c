@@ -156,9 +156,9 @@ int cmmMc4QueryProcess(char ** keywords, int tabStart, daemon_handle_t daemon_ha
 
                 for ( i = 0; i < listener_count; i++)
 		{
-	            len += sprintf(output_buf + len, "output interface:  ");
-                    len += sprintf(output_buf + len, "%s  ", mc4_listener[i].output_device_str);
-		    cmm_print (DEBUG_STDOUT,output_buf);
+	            len += snprintf(output_buf + len, sizeof(output_buf) - len, "output interface:  ");
+                    len += snprintf(output_buf + len, sizeof(output_buf) - len, "%s  ", mc4_listener[i].output_device_str);
+		    cmm_print(DEBUG_STDOUT, "%s", output_buf);
                     if(mc4_listener[i].uc_bit)
                            cmm_print(DEBUG_STDOUT,"UC MAC is %02x:%02x:%02x:%02x:%02x:%02x  ",mc4_listener[i].uc_mac[0],mc4_listener[i].uc_mac[1],mc4_listener[i].uc_mac[2],mc4_listener[i].uc_mac[3],mc4_listener[i].uc_mac[4],mc4_listener[i].uc_mac[5]);
                    cmm_print(DEBUG_STDOUT," TIMER : 0x%x   SHAPER : 0x%x   QUEUE : 0x%x\n",mc4_listener[i].timer,mc4_listener[i].shaper_mask, mc4_listener[i].queue);
@@ -181,7 +181,6 @@ int cmmMc4QueryProcess(char ** keywords, int tabStart, daemon_handle_t daemon_ha
  ************************************************************/
 void cmmMc4SetPrintHelp()
 {
-#if defined(COMCERTO_2000) || defined(LS1043)
       #if defined(LS1043)
 	cmm_print(DEBUG_STDOUT, "Usage: set mc4 ingress_interface {if_name} interface {if_name} {add | del | update}\n"
       #else
@@ -194,17 +193,6 @@ void cmmMc4SetPrintHelp()
 									"                 [listener [timer {timer_value1}] [shapers {0..0xFF}][mc | uc {Mac addr1} ] [queue {0..19}] [if {if_name}]] \n"
 									"                 [listener [timer {timer_value2}] [shapers {0..0xFF}][mc | uc {Mac addr2} ] [queue {0..19}] [if {if_name}]] ...\n"
 									"                 [listener [timer {timer_valuen}] [shapers {0..0xFF}][mc | uc {Mac addrn} ] [queue {0..19}] [if {if_name}]] \n");
-#else
-	cmm_print(DEBUG_STDOUT, "Usage: set mc4 interface {if_name} {add | del | update}\n"
-									"                 group {bit_mask} {ipv4_src_addr} {ipv4_multicast_dst_addr}\n"
-									"                 [timer {timer_value}]\n"
-									"                 [mode {bridged | routed}]\n"
-									"                 [queue {0..31}]\n"
-									"                 [listener [timer {timer_value1}] [shapers {0..0xFF}][mc | uc {Mac addr1} ] [queue {0..31}] [if {if_name}]] \n"
-									"                 [listener [timer {timer_value2}] [shapers {0..0xFF}][mc | uc {Mac addr2} ] [queue {0..31}] [if {if_name}]] ...\n"
-									"                 [listener [timer {timer_valuen}] [shapers {0..0xFF}][mc | uc {Mac addrn} ] [queue {0..31}] [if {if_name}]] \n");
-
-#endif									
 }
 
 /************************************************************

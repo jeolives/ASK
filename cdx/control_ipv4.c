@@ -133,20 +133,6 @@ int ct_add(PCtEntry pEntry_orig, TIMER_HANDLER handler)
 		}
 		pEntry_rep->status |= CONNTRACK_HWSET;
 	}
-#ifdef CDX_TODO_RTPRELAY
-	if(IS_IPV4(pEntry_orig))
-	{
-		/* check if rtp stats entry is created for this conntrack, if found link the two object and mark the conntrack 's status field for RTP stats */
-		rtpqos_ipv4_link_stats_entry_by_tuple(pEntry_orig, pEntry_orig->Saddr_v4, pEntry_orig->Daddr_v4, pEntry_orig->Sport, pEntry_orig->Dport);
-		rtpqos_ipv4_link_stats_entry_by_tuple(pEntry_rep, pEntry_rep->Saddr_v4, pEntry_rep->Daddr_v4, pEntry_rep->Sport, pEntry_rep->Dport);
-	}
-	else
-	{
-		/* check if rtp stats entry is created for this conntrack, if found link the two object and mark the conntrack 's status field for RTP stats */
-		rtpqos_ipv6_link_stats_entry_by_tuple(pEntry_orig, pEntry_orig->Saddr_v6, pEntry_orig->Daddr_v6, pEntry_orig->Sport, pEntry_orig->Dport);
-		rtpqos_ipv6_link_stats_entry_by_tuple(pEntry_rep, pEntry_rep->Saddr_v6, pEntry_rep->Daddr_v6, pEntry_rep->Sport, pEntry_rep->Dport);
-	}
-#endif
 
 	/* Add to local hash */
 	slist_add(&ct_cache[pEntry_orig->hash], &pEntry_orig->list);
@@ -1329,15 +1315,6 @@ static U16 M_ipv4_cmdproc(U16 cmd_code, U16 cmd_len, U16 *pcmd)
 			rc = IPv4_HandleIP_FF_CONTROL(pcmd, cmd_len);
 			break;
 
-#ifdef CDX_TODO_ALTCONF
-			/* IPv4 module is used to handle alternate configuration API */
-		case CMD_ALTCONF_SET:
-			rc = ALTCONF_HandleCONF_SET(pcmd, cmd_len);
-			break;
-		case CMD_ALTCONF_RESET:
-			rc = ALTCONF_HandleCONF_RESET_ALL(pcmd, cmd_len);
-			break;
-#endif
 
 		case CMD_IPV4_SOCK_OPEN:
 			DPRINT("%s(%d) \n",__FUNCTION__,__LINE__);
@@ -1352,12 +1329,6 @@ static U16 M_ipv4_cmdproc(U16 cmd_code, U16 cmd_len, U16 *pcmd)
 			rc = SOCKET4_HandleIP_Socket_Update(pcmd, cmd_len);
 			break;
 
-#ifdef CDX_TODO_IPV4FRAG
-		case CMD_IPV4_FRAGTIMEOUT:
-		case CMD_IPV4_SAM_FRAGTIMEOUT:
-			rc = IPv4_HandleIP_Set_FragTimeout(pcmd, cmd_len, (cmd_code == CMD_IPV4_SAM_FRAGTIMEOUT));
-			break;
-#endif
 
 		default:
 			rc = ERR_UNKNOWN_COMMAND;

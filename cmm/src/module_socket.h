@@ -87,11 +87,9 @@ struct socket {
 	u_int16_t       expt_flag;
 	u_int16_t       rsvd;
 #endif //(LS1043)
-#if defined(COMCERTO_2000) || defined(LS1043)
 	u_int16_t secure;
 	struct FlowEntry *rx_flow;
 	struct FlowEntry *tx_flow;
-#endif
 };
 
 extern struct list_head socket_table[HASH_SOCKET_SIZE];
@@ -110,9 +108,7 @@ void __socket_add(struct socket * s);
 u_int32_t new_socket_id(void);
 void del_socket_id(u_int32_t sock_id_ext);
 
-#if defined(COMCERTO_2000) || defined(LS1043)
 struct socket *__cmmSocketFindFromFlow(int family, unsigned int *saddr, unsigned int *daddr, unsigned char proto, char *orig);
-#endif
 
 
 #endif

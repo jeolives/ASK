@@ -74,18 +74,6 @@ static void display_tbl_info(struct table_info *tinfo)
 	printk("table		\t%s\n", tinfo->name);
 	printk("dpa_type	\t%d\n", tinfo->dpa_type);
 	printk("type		\t%d\n", tinfo->type);
-#if 0
-	switch (tinfo->dpa_type) {
-		case DPA_CLS_TBL_EXACT_MATCH:
-			printk("num keys	\t%d\n", tinfo->num_keys);
-			break;
-		case DPA_CLS_TBL_EXTERNAL_HASH:
-		case DPA_CLS_TBL_INTERNAL_HASH:
-			printk("num sets 	\t%d\n", tinfo->num_sets);
-			printk("num ways 	\t%d\n", tinfo->num_ways);
-			break;
-	}
-#endif
 	printk("port idx 	\t%x\n", tinfo->port_idx);
 	printk("key size	\t%d\n", tinfo->key_size);
 	printk("handle		\t%p\n", tinfo->id);
@@ -180,29 +168,34 @@ static void release_cfg_info(void)
 	num_fmans = 0;
 }
 
-//allocate and copy distribution info from uspace 
+#define CDX_MAX_DIST_PER_PORT		64
+#define CDX_MAX_FMANS			8
+
+//allocate and copy distribution info from uspace
 static int get_dist_info(struct cdx_port_info *port_info)
 {
-	uint32_t mem_size;
 	struct cdx_dist_info *dist_info;
 	void *uspace_info;
 
 #ifdef DPA_CFG_DEBUG
-	DPA_INFO("%s::port %s dist %d\n", __FUNCTION__, 
+	DPA_INFO("%s::port %s dist %d\n", __FUNCTION__,
 			port_info->name, port_info->max_dist);
 #endif
-	mem_size = (sizeof(struct cdx_dist_info) * port_info->max_dist);
-	dist_info = kzalloc(mem_size, 0);
+	if (port_info->max_dist == 0 || port_info->max_dist > CDX_MAX_DIST_PER_PORT) {
+		DPA_ERROR("%s::max_dist %u out of range\n",
+				__FUNCTION__, port_info->max_dist);
+		return -EINVAL;
+	}
+	dist_info = kcalloc(port_info->max_dist, sizeof(*dist_info), GFP_KERNEL);
 	if (!dist_info) {
 		DPA_ERROR("%s::memalloc for dist_info failed\n",
 				__FUNCTION__);
 		return -ENOMEM;
 	}
-	memset(dist_info, 0, mem_size);
 	uspace_info = port_info->dist_info;
 	port_info->dist_info = dist_info;
-	if (copy_from_user(dist_info, uspace_info, 
-				mem_size)) {
+	if (copy_from_user(dist_info, uspace_info,
+			   port_info->max_dist * sizeof(*dist_info))) {
 		DPA_ERROR("%s::Read dist_info failed port %s\n",
 				__FUNCTION__, port_info->name);
 		return -EIO;
@@ -280,30 +273,32 @@ static void *get_dist_info_by_fman_params(struct cdx_fman_info *finfo, uint32_t 
 }
 #endif //CDX_RTP_RELAY
 
-//allocate and copy port releated info from uspace 
-static int get_port_info(struct cdx_fman_info *finfo) 
-{	
+//allocate and copy port releated info from uspace
+static int get_port_info(struct cdx_fman_info *finfo)
+{
 	struct cdx_port_info *port_info;
 	void *uspace_info;
-	uint32_t mem_size;
 	uint32_t ii;
 
-	//allocate port information area
-	mem_size = (sizeof(struct cdx_port_info) * finfo->max_ports);
 #ifdef DPA_CFG_DEBUG
-	DPA_INFO("%s::fm %d num ports %d\n", __FUNCTION__, 
+	DPA_INFO("%s::fm %d num ports %d\n", __FUNCTION__,
 			finfo->index, finfo->max_ports);
 #endif
-	port_info = kzalloc(mem_size, 0); 
+	if (finfo->max_ports == 0 || finfo->max_ports > MAX_PORTS_PER_FMAN) {
+		DPA_ERROR("%s::max_ports %u out of range\n",
+				__FUNCTION__, finfo->max_ports);
+		return -EINVAL;
+	}
+	port_info = kcalloc(finfo->max_ports, sizeof(*port_info), GFP_KERNEL);
 	if (!port_info) {
 		DPA_ERROR("%s::memalloc for port_info failed\n",
 				__FUNCTION__);
 		return -ENOMEM;
 	}
-	memset(port_info, 0, mem_size);
 	uspace_info = finfo->portinfo;
 	finfo->portinfo = port_info;
-	if (copy_from_user(port_info, uspace_info, mem_size)) {
+	if (copy_from_user(port_info, uspace_info,
+			   finfo->max_ports * sizeof(*port_info))) {
 		DPA_ERROR("%s::Read port_info failed\n",
 				__FUNCTION__);
 		return -EIO;
@@ -320,7 +315,7 @@ static int get_port_info(struct cdx_fman_info *finfo)
 						__FUNCTION__, port_info->name);
 				return -EIO;
 			} else {
-				strcpy(port_info->name, dev->name);
+				strscpy(port_info->name, dev->name, sizeof(port_info->name));
 			}
 		}
 #ifdef DPA_CFG_DEBUG
@@ -344,26 +339,29 @@ static int get_port_info(struct cdx_fman_info *finfo)
 	return 0;
 }	
 
-//allocate and copy cc table infor from uspace
-static int get_cctbl_info(struct cdx_fman_info *finfo) 
-{	
+#define CDX_MAX_TABLES_PER_FMAN		256
+
+//allocate and copy cc table info from uspace
+static int get_cctbl_info(struct cdx_fman_info *finfo)
+{
 	struct table_info *tbl_info;
-	uint32_t mem_size;
 	void *uspace_info;
 
-	//allocate table information area
-	mem_size = (sizeof(struct table_info) * finfo->num_tables);
-	tbl_info = kzalloc(mem_size, 0); 
+	if (finfo->num_tables == 0 || finfo->num_tables > CDX_MAX_TABLES_PER_FMAN) {
+		DPA_ERROR("%s::num_tables %u out of range\n",
+				__FUNCTION__, finfo->num_tables);
+		return -EINVAL;
+	}
+	tbl_info = kcalloc(finfo->num_tables, sizeof(*tbl_info), GFP_KERNEL);
 	if (!tbl_info) {
 		DPA_ERROR("%s::memalloc for table_info failed\n",
 				__FUNCTION__);
 		return -ENOMEM;
 	}
-	memset(tbl_info, 0, mem_size);
 	uspace_info = finfo->tbl_info;
 	finfo->tbl_info = tbl_info;
-	//copy table related info from user space	
-	if (copy_from_user(tbl_info, (void *)uspace_info, mem_size)) {
+	if (copy_from_user(tbl_info, (void *)uspace_info,
+			   finfo->num_tables * sizeof(*tbl_info))) {
 		DPA_ERROR("%s::Read tbl_info failed\n",
 				__FUNCTION__);
 		return -EIO;
@@ -601,18 +599,21 @@ int cdx_ioc_set_dpa_params(unsigned long args)
 {
 	struct cdx_ctrl_set_dpa_params params;
 	struct cdx_fman_info *finfo;
-	uint32_t ii;	
-	uint32_t mem_size;
+	uint32_t ii;
 	int retval;
 
-	if (copy_from_user(&params, (void *)args, 
+	if (copy_from_user(&params, (void *)args,
 				sizeof(struct cdx_ctrl_set_dpa_params))) {
-		DPA_ERROR("%s::Read uspace args failed\n", 
+		DPA_ERROR("%s::Read uspace args failed\n",
 				__FUNCTION__);
 		return -EBUSY;
 	}
-	mem_size = (sizeof(struct cdx_fman_info) * params.num_fmans);
-	fman_info = kzalloc(mem_size, 0);
+	if (params.num_fmans == 0 || params.num_fmans > CDX_MAX_FMANS) {
+		DPA_ERROR("%s::num_fmans %u out of range\n",
+				__FUNCTION__, params.num_fmans);
+		return -EINVAL;
+	}
+	fman_info = kcalloc(params.num_fmans, sizeof(*fman_info), GFP_KERNEL);
 	if (!fman_info) {
 		DPA_ERROR("%s::unable to allocate mem for fman_info\n",
 				__FUNCTION__);
@@ -622,11 +623,10 @@ int cdx_ioc_set_dpa_params(unsigned long args)
 #ifdef DPA_CFG_DEBUG
 	DPA_INFO("%s::num fmans %d\n", __FUNCTION__, num_fmans);
 #endif
-	memset(fman_info, 0, mem_size);
 	//get fman info
-	if (copy_from_user(fman_info, (void *)params.fman_info, 
-				(sizeof(struct cdx_fman_info) * num_fmans))) {
-		DPA_ERROR("%s::Read fman_info failed\n", 
+	if (copy_from_user(fman_info, (void *)params.fman_info,
+				num_fmans * sizeof(*fman_info))) {
+		DPA_ERROR("%s::Read fman_info failed\n",
 				__FUNCTION__);
 		retval = -EIO;
 		goto err_ret;

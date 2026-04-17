@@ -15,8 +15,6 @@
 #include <stdio.h>
 #include <stdlib.h>
 
-//#define ENABLE_TESTAPP		1
-
 extern int dpa_init(void);
 extern int test_app_init(void);
 

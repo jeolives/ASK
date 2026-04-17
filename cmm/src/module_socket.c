@@ -136,7 +136,6 @@ void __socket_add(struct socket * s)
 	key= HASH_SOCK_ADDR(s->family, s->saddr, s->daddr, s->sport, s->dport, s->proto);
 	list_add(&socket_table_by_addr[key], &s->list_by_addr);
 
-#if defined(COMCERTO_2000) || defined(LS1043)
 #ifdef IPSEC_FLOW_CACHE
 	s->rx_flow = __cmmFlowGet(s->family, s->saddr, s->daddr, s->sport, s->dport, s->proto, FLOW_DIR_IN); /*tx and rx flows are swapped for sockets (L2TP sockets.), this is because unlike RTP Relay, for L2TP a single socket is used, so the socket is created with daddr  as local address and saddr as peer address. This might need revisiting if the flows are extended for other sockets  */ 
 	s->tx_flow = __cmmFlowGet(s->family, s->daddr, s->saddr, s->dport, s->sport, s->proto, FLOW_DIR_OUT);
@@ -145,7 +144,6 @@ void __socket_add(struct socket * s)
 #else
 		/* TODO  will be taken when supporting IPSEC for local in packets*/
 #endif /* IPSEC_FLOW_CACHE */
-#endif
 
 }
 
@@ -293,7 +291,6 @@ static int socket4_send_cmd(FCI_CLIENT *fci_handle, int action, struct socket *s
 		cmd.expt_flag = s->expt_flag;
 		cmd.iifindex = s->iifindex;
 #endif //(LS1043)
-#if defined(COMCERTO_2000) || defined(LS1043)
 		cmd.secure = s->secure;
 #ifdef IPSEC_FLOW_CACHE
 		if (s->rx_flow)
@@ -313,7 +310,6 @@ static int socket4_send_cmd(FCI_CLIENT *fci_handle, int action, struct socket *s
 #else
 		/* TODO  will be taken when supporting IPSEC for local in packets*/
 #endif /* IPSEC_FLOW_CACHE */
-#endif
 
 		//Send message to forward engine
 		cmm_print(DEBUG_COMMAND, "Send CMD_IPV4_SOCK_OPEN\n");
@@ -351,7 +347,6 @@ static int socket4_send_cmd(FCI_CLIENT *fci_handle, int action, struct socket *s
 #if defined(LS1043)
 		cmd.expt_flag = s->expt_flag;
 #endif
-#if defined(COMCERTO_2000) || defined(LS1043)
 		cmd.secure = s->secure;
 #ifdef IPSEC_FLOW_CACHE
 		if (s->rx_flow)
@@ -371,7 +366,6 @@ static int socket4_send_cmd(FCI_CLIENT *fci_handle, int action, struct socket *s
 #else
 		/* TODO  will be taken when supporting IPSEC for local in packets*/
 #endif /* IPSEC_FLOW_CACHE */
-#endif
 
 		//Send message to forward engine
 		cmm_print(DEBUG_COMMAND, "Send CMD_IPV4_SOCK_UPDATE\n");
@@ -459,7 +453,6 @@ static int socket6_send_cmd(FCI_CLIENT *fci_handle, int action, struct socket *s
 		cmd.expt_flag = s->expt_flag;
 		cmd.iifindex = s->iifindex;
 #endif
-#if defined(COMCERTO_2000) || defined(LS1043)
 #ifdef IPSEC_FLOW_CACHE
 		if (s->rx_flow)
 		{
@@ -480,7 +473,6 @@ static int socket6_send_cmd(FCI_CLIENT *fci_handle, int action, struct socket *s
 #else
 		/* TODO  will be taken when supporting IPSEC for local in packets*/
 #endif /* IPSEC_FLOW_CACHE */
-#endif
 
 		//Send message to forward engine
 		cmm_print(DEBUG_COMMAND, "Send CMD_IPV6_SOCK_OPEN\n");
@@ -518,7 +510,6 @@ static int socket6_send_cmd(FCI_CLIENT *fci_handle, int action, struct socket *s
 #if defined(LS1043)
 		cmd.expt_flag = s->expt_flag;
 #endif // LS1043
-#if defined(COMCERTO_2000) || defined(LS1043)
 #ifdef IPSEC_FLOW_CACHE
 		if (s->rx_flow)
 		{
@@ -539,7 +530,6 @@ static int socket6_send_cmd(FCI_CLIENT *fci_handle, int action, struct socket *s
 #else
 			/* TODO  will be taken when supporting IPSEC for local in packets*/
 #endif /* IPSEC_FLOW_CACHE */
-#endif
 
 		//Send message to forward engine
 		cmm_print(DEBUG_COMMAND, "Send CMD_IPV6_SOCK_UPDATE\n");
@@ -672,7 +662,6 @@ int __socket_open(FCI_CLIENT *fci_handle, struct socket *s)
 program:
 	__cmmCheckFPPRouteIdUpdate(&s->rt, &s->flags);
 
-#if defined(COMCERTO_2000) || defined(LS1043)
 #ifdef IPSEC_FLOW_CACHE
 	if(((s->rx_flow) && (s->rx_flow->flags & FPP_NEEDS_UPDATE ) )
 		|| ((s->tx_flow) && (s->tx_flow->flags & FPP_NEEDS_UPDATE )))
@@ -680,7 +669,6 @@ program:
 #else
 			/* TODO  will be taken when supporting IPSEC for local in packets*/
 #endif /* IPSEC_FLOW_CACHE */
-#endif
 
 	rc = socket_send_cmd(fci_handle, ADD | UPDATE, s);
 
@@ -688,7 +676,6 @@ program:
 }
 
 
-#if defined(COMCERTO_2000) || defined(LS1043)
 /************************************************************
  *
  * __cmmSocketFindFromFlow
@@ -727,7 +714,6 @@ struct socket *__cmmSocketFindFromFlow(int family, unsigned int *saddr, unsigned
 found:
 	return s;
 }
-#endif	//  defined(COMCERTO_2000) || defined(LS1043)
 
 /************************************************************
  *
@@ -773,7 +759,6 @@ int __socket_close(FCI_CLIENT *fci_handle, FCI_CLIENT *fci_key_handle, struct so
 
 	__cmmRouteDeregister(fci_handle, &s->rt, "socket");
 
-#if defined(COMCERTO_2000) || defined(LS1043)
 #ifdef IPSEC_FLOW_CACHE
 	if (s->rx_flow)
 		if (!cmmFlowKeyEngineRemove(fci_key_handle, s->rx_flow))
@@ -790,7 +775,6 @@ int __socket_close(FCI_CLIENT *fci_handle, FCI_CLIENT *fci_key_handle, struct so
 #else
 		/* TODO  will be taken when supporting IPSEC for local in packets*/
 #endif /* IPSEC_FLOW_CACHE */
-#endif
 
 	/* In case of error the socket may still be programmed in fpp,
 	   so don't remove it */
@@ -902,7 +886,6 @@ static int socket_update(FCI_CLIENT *fci_handle, cmmd_socket_update_cmd_t *cmd)
 		s->expt_flag = cmd->expt_flag;
 #endif // LS1043
 
-#if defined(COMCERTO_2000) || defined(LS1043)
 	s->secure = 0;
 #ifdef IPSEC_FLOW_CACHE
 	s->rx_flow = __cmmFlowGet(s->family, s->saddr, s->daddr, s->sport, s->dport, s->proto, FLOW_DIR_IN);
@@ -912,7 +895,6 @@ static int socket_update(FCI_CLIENT *fci_handle, cmmd_socket_update_cmd_t *cmd)
 #else
 	/* TODO  will be taken when supporting IPSEC for local in packets*/
 #endif /* IPSEC_FLOW_CACHE */
-#endif
 
 	s->flags |= FPP_NEEDS_UPDATE;
 
@@ -1505,7 +1487,6 @@ int cmmSocketSetProcess(char ** keywords, int tabStart, daemon_handle_t daemon_h
 					cmd.expt_flag |= 0x1;
 			}
 #endif //LS1043
-#if defined(COMCERTO_2000) || defined(LS1043)
 			else if(strcasecmp(keywords[cpt], "ipsec") == 0)
 			{
 				if(!keywords[++cpt])
@@ -1521,7 +1502,6 @@ int cmmSocketSetProcess(char ** keywords, int tabStart, daemon_handle_t daemon_h
 				}
 				cmd.secure = tmp;
 			}
-#endif
 			else
 				goto keyword_error;
 		}
@@ -1553,9 +1533,7 @@ int cmmSocketSetProcess(char ** keywords, int tabStart, daemon_handle_t daemon_h
 		cmd.dscp = 0xffff;
 		cmd.queue = 0xff;
 		cmd.fwmark = 0xffffffff;
-#if defined(COMCERTO_2000) || defined(LS1043)
 		cmd.secure = 0xffff;
-#endif
 #if defined(LS1043)
 		cmd.expt_flag = 0xffff;
 #endif //LS1043
@@ -1676,7 +1654,6 @@ int cmmSocketSetProcess(char ** keywords, int tabStart, daemon_handle_t daemon_h
 					cmd.expt_flag |= 0x1;
 			}
 #endif //LS1043
-#if defined(COMCERTO_2000) || defined(LS1043)
 			else if(strcasecmp(keywords[cpt], "ipsec") == 0)
 			{
 				if(!keywords[++cpt])
@@ -1692,7 +1669,6 @@ int cmmSocketSetProcess(char ** keywords, int tabStart, daemon_handle_t daemon_h
 				}
 				cmd.secure = tmp;
 			}
-#endif
 			else
 				goto keyword_error;
 
@@ -1841,9 +1817,7 @@ int cmmSocketShowProcess(char ** keywords, int tabStart, daemon_handle_t daemon_
 									"proto       : %d\n"
 									"queue       : %d\n"
 									"dscp        : %d\n"
-#if defined(COMCERTO_2000) || defined(LS1043)
 									"ipsec       : %d\n"
-#endif
 									"flags       : %d\n",
 						s->id,
 						inet_ntop(s->family, s->saddr, saddr_buf, sizeof(saddr_buf)),
@@ -1853,9 +1827,7 @@ int cmmSocketShowProcess(char ** keywords, int tabStart, daemon_handle_t daemon_
 						s->proto,
 						s->queue,
 						s->dscp,
-#if defined(COMCERTO_2000) || defined(LS1043)
 						s->secure,
-#endif
 						s->flags);
 			return 0;
 	}

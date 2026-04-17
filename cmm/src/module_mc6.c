@@ -160,9 +160,9 @@ int cmmMc6QueryProcess(char ** keywords, int tabStart, daemon_handle_t daemon_ha
 
                 for ( i = 0; i < listner_count; i++)
 		{
-	            len += sprintf(output_buf + len, "output interface:  ");
-                    len += sprintf(output_buf + len, "%s  ", mc6_listener[i].output_device_str);
-		    cmm_print (DEBUG_STDOUT,output_buf);
+	            len += snprintf(output_buf + len, sizeof(output_buf) - len, "output interface:  ");
+                    len += snprintf(output_buf + len, sizeof(output_buf) - len, "%s  ", mc6_listener[i].output_device_str);
+		    cmm_print(DEBUG_STDOUT, "%s", output_buf);
                     if(mc6_listener[i].uc_bit)
                            cmm_print(DEBUG_STDOUT,"UC MAC is %02x:%02x:%02x:%02x:%02x:%02x  ",mc6_listener[i].uc_mac[0],mc6_listener[i].uc_mac[1],mc6_listener[i].uc_mac[2],mc6_listener[i].uc_mac[3],mc6_listener[i].uc_mac[4],mc6_listener[i].uc_mac[5]);
                    cmm_print(DEBUG_STDOUT," TIMER : 0x%x   SHAPER : 0x%x   QUEUE : 0x%x\n",mc6_listener[i].timer,mc6_listener[i].shaper_mask, mc6_listener[i].queue);
@@ -187,14 +187,7 @@ int cmmMc6QueryProcess(char ** keywords, int tabStart, daemon_handle_t daemon_ha
  ************************************************************/
 void cmmMc6SetPrintHelp()
 {
-#ifdef COMCERTO_2000	
-	cmm_print(DEBUG_STDOUT, "Usage: set mc6 interface {if_name} {add | del | update } \n\tgroup {bit_mask} {IPv6 Src Address} {IPv6 Multicast Dst Address} [mode {bridged | routed}] [queue {0..19}] \n\t[listener [timer {timer_value1}] [shapers {0..0xFF}][mc | uc {Mac addr1} ] [queue {0..19}]] [if {if_name}] \n\t [ listener [timer {timer_value2}]  [shapers {0..0xFF}][mc | uc {Mac addr2} ] [queue {0..19}]] [if {if_name}]...  \n\t[ listener [timer {timer_valueN}]  [shapers {0..0xFF}][mc | uc {Mac addrN} ] [queue {0..19}]] [if {if_name}]");
-#elif defined(LS1043)
 	cmm_print(DEBUG_STDOUT, "Usage: set mc6 ingress_interface {if_name} interface {if_name} {add | del | update } \n\tgroup {bit_mask} {IPv6 Src Address} {IPv6 Multicast Dst Address} [mode {bridged | routed}] [queue {0..31}]\n\t[listener [timer {timer_value1}] [shapers {0..0xFF}][mc | uc {Mac addr1} ] [queue {0..31}]] [if {if_name}] \n\t [ listener [timer {timer_value2}]  [shapers {0..0xFF}][mc | uc {Mac addr2} ] [queue {0..31}]] [if {if_name}]...  \n\t[ listener [timer {timer_valueN}]  [shapers {0..0xFF}][mc | uc {Mac addrN} ] [queue {0..31}]] [if {if_name}] ");
-#else
-	cmm_print(DEBUG_STDOUT, "Usage: set mc6 interface {if_name} {add | del | update } \n\tgroup {bit_mask} {IPv6 Src Address} {IPv6 Multicast Dst Address} [mode {bridged | routed}] [queue {0..31}]\n\t[listener [timer {timer_value1}] [shapers {0..0xFF}][mc | uc {Mac addr1} ] [queue {0..31}]] [if {if_name}] \n\t [ listener [timer {timer_value2}]  [shapers {0..0xFF}][mc | uc {Mac addr2} ] [queue {0..31}]] [if {if_name}]...  \n\t[ listener [timer {timer_valueN}]  [shapers {0..0xFF}][mc | uc {Mac addrN} ] [queue {0..31}]] [if {if_name}] ");
-
-#endif
 	cmm_print(DEBUG_STDOUT, "\n\nUsage:set mc6 mode route|bridge\n");
 }
 

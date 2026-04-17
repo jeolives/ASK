@@ -196,7 +196,7 @@ const char *mac_ntop(const void *mac, char *buf, size_t len)
 /*Print CMM help*/
 void cmmHelp()
 {
-	cmm_print(DEBUG_STDOUT, cmm_help);
+	cmm_print(DEBUG_STDOUT, "%s", cmm_help);
 }
 
 /*****************************************************************
@@ -348,9 +348,6 @@ int main (int argc, char ** argv)
 	globalConf.vlan_policy = ALLOW;
 	globalConf.ff_enable = 1;
 	globalConf.cli_listenaddr=htonl(INADDR_LOOPBACK);
-#ifdef C2000_DPI
-	globalConf.dpi_enable = 0;
-#endif
 	globalConf.asymff_enable = 0;
 	globalConf.logFile = NULL;
 	globalConf.log_level = 0;
@@ -358,9 +355,6 @@ int main (int argc, char ** argv)
 	globalConf.tun_family = AF_INET6;
 	globalConf.enable_sam_itfs = 0; /* by default , this option will be disabled */
 
-#ifdef MUTEX_DEBUG
-	mutexes = 0;
-#endif
 
 	action.sa_sigaction = cmm_crit_err_hdlr;
 	sigemptyset (&action.sa_mask);

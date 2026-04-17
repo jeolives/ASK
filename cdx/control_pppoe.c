@@ -40,9 +40,6 @@ static void __pppoe_add(pPPPoE_Info pEntry, U16 hash_key)
 	/* Add to our local hash */
 	slist_add(&pppoe_cache[hash_key], &pEntry->list);
 
-#ifdef CDX_TODO_PPPOE
-	/* Construct the hardware entry, converting virtual addresses and endianess where needed */
-#endif
 	cdx_timer_init(&pEntry->timer, M_pppoe_timer);
 	cdx_timer_add(&pEntry->timer, PPPOE_TIMER_PERIOD);
 }
@@ -66,9 +63,6 @@ static void __pppoe_remove(pPPPoE_Info pEntry, U16 hash_key)
 
 	prev = slist_prev(&pppoe_cache[hash_key], &pEntry->list);
 
-#ifdef CDX_TODO_PPPOE
-	/* remove the hardware entry */
-#endif
 
 	/* Remove from our local hash */
 	slist_remove_after(prev);
@@ -91,13 +85,7 @@ static void pppoe_remove_relay(pPPPoE_Info pEntry, U16 hash_key, pPPPoE_Info pRe
 static int M_pppoe_timer(TIMER_ENTRY *timer)
 {
 	pPPPoE_Info pEntry = container_of(timer, PPPoE_Info, timer);
-#ifdef CDX_TODO_PPPOE
-	if (hw_get_active_pppoe_rcv(zzz))		// TODO: implement check
-#endif
 		pEntry->last_pkt_rcvd = JIFFIES32;
-#ifdef CDX_TODO_PPPOE
-	if (hw_get_active_pppoe_xmt(zzz))		// TODO: implement check
-#endif
 		pEntry->last_pkt_xmit = JIFFIES32;
 	return 1;
 }
@@ -495,16 +483,16 @@ static int PPPoE_Get_Session_Snapshot(int pppoe_hash_index , int pppoe_tot_entri
 		pPPPoESnapshot->sessionID   = ntohs(pPPPoEEntry->sessionID);
 		COPY_MACADDR(pPPPoESnapshot->macAddr, pPPPoEEntry->DstMAC);
 
+		strscpy((char *)pPPPoESnapshot->phy_intf,
+			get_onif_name(pPPPoEEntry->itf.phys->index),
+			sizeof(pPPPoESnapshot->phy_intf));
 		if (!pPPPoEEntry->relay)
-		{
-			strcpy((char *)pPPPoESnapshot->phy_intf, get_onif_name(pPPPoEEntry->itf.phys->index));
-			strcpy((char *)pPPPoESnapshot->log_intf, get_onif_name(pPPPoEEntry->itf.index));
-		}
+			strscpy((char *)pPPPoESnapshot->log_intf,
+				get_onif_name(pPPPoEEntry->itf.index),
+				sizeof(pPPPoESnapshot->log_intf));
 		else
-		{
-			strcpy((char *)pPPPoESnapshot->phy_intf, get_onif_name(pPPPoEEntry->itf.phys->index));
-			strcpy((char *)pPPPoESnapshot->log_intf, "relay");
-		}
+			strscpy((char *)pPPPoESnapshot->log_intf, "relay",
+				sizeof(pPPPoESnapshot->log_intf));
 
 		pPPPoESnapshot++;
 		tot_sessions++;

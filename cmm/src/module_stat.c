@@ -512,22 +512,9 @@ int cmmStatShowProcess(char ** keywords, int tabStart, daemon_handle_t daemon_ha
 		else
 		{
 			connStatRsp = (fpp_stat_conn_response_t *)(rxbuf.rcvBuffer);
-#if !defined(COMCERTO_2000)
 			cmm_print(DEBUG_STDOUT, "Maximum Active Connections: %u \n"
 						"Number of Active Connections: %u \n",
 				nf_conntrack_max, connStatRsp->num_active_connections);
-#else
-			cmm_print(DEBUG_STDOUT, "Maximum connections supported in FE: %u \n"
-						"Maximum Active Connections: %s \n"
-						"Number of Active Connections: %u \n"
-						"Configured FE DDR Memory available for connections: %s \n"
-						"FE DDR Memory used by connections: %s \n",
-				connStatRsp->max_active_connections,
-				"N/A",
-				connStatRsp->num_active_connections,
-				"N/A",
-				"N/A");
-#endif
 		}
 	}
 

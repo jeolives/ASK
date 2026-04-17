@@ -144,11 +144,13 @@ static int __maybe_unused disp_muram(void)
 
 
 long cdx_ctrl_ioctl(struct file *filp, unsigned int cmd,
-                unsigned long args) 
+                unsigned long args)
 {
 	int retval;
 
-	//DPA_INFO("%s::cmd %d\n", __FUNCTION__, cmd);
+	if (!capable(CAP_NET_ADMIN))
+		return -EPERM;
+
 	switch (cmd) {
 		case CDX_CTRL_DPA_SET_PARAMS:
 			retval = cdx_ioc_set_dpa_params(args);

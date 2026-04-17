@@ -265,32 +265,6 @@ static int rtp_flow_add(PRTPflow pFlow, U32 hash, PSockEntry pFromSocket, PSockE
 	return NO_ERR;
 }
 
-#if 0
-/* add a hardware flow entry to packet engine hash */
-static void rtp_flow_link(struct _thw_rtpflow *hw_flow, U32 hash)
-{
-	struct _thw_rtpflow *hw_flow_first;
-
-	/* add hw entry to active list and update next pointer */
-	if(!dlist_empty(&hw_flow_active_list[hash]))
-	{
-		/* list is not empty, and we'll be added at head, so current first will become our next pointer */
-		hw_flow_first = container_of(dlist_first(&hw_flow_active_list[hash]), typeof(struct _thw_rtpflow), list);
-		hw_entry_set_field(&hw_flow->next, hw_entry_get_field(&hw_flow_first->dma_addr));
-	}
-	else
-	{
-		/* entry is empty, so we'll be the first and only one entry */
-		hw_entry_set_field(&hw_flow->next, 0);
-	}
-
-	/* this rtp flow is now the head of the hw entry list, so put it also to pfe's internal hash */
-	rtp_flow_add_to_pe(hw_flow->dma_addr, hash);
-
-	dlist_add(&hw_flow_active_list[hash], &hw_flow->list);
-}
-
-#endif // 0
 /* remove a hardware flow entry from the packet engine hash */
 static void rtp_flow_unlink(struct _thw_rtpflow *hw_flow, U32 hash)
 {
@@ -1785,41 +1759,6 @@ static U16 M_rtp_cmdproc(U16 cmd_code, U16 cmd_len, U16 *pcmd)
 			rc = rtp_set_dtmf_pt(pcmd, cmd_len);
 			break;	
 
-#if 0
-		case CMD_RTP_STATS_ENABLE:
-			rc = RTPQOS_enable_stats(pcmd, cmd_len);
-			break;	
-
-		case CMD_RTP_STATS_DISABLE:
-			rc = RTPQOS_disable_stats(pcmd, cmd_len);
-			break;	
-
-		case CMD_RTP_STATS_QUERY:
-			rc = RTPQOS_query_stats(pcmd, cmd_len);
-			if (rc == NO_ERR)
-				retlen += sizeof(RTCPQueryResponse);
-			break;	
-
-		case CMD_VOICE_BUFFER_LOAD:
-			rc = voice_buffer_command_load(pcmd, cmd_len);
-			break;
-
-		case CMD_VOICE_BUFFER_UNLOAD:
-			rc = voice_buffer_command_unload(pcmd, cmd_len);
-			break;
-
-		case CMD_VOICE_BUFFER_START:
-			rc = voice_buffer_command_start(pcmd, cmd_len);
-			break;
-
-		case CMD_VOICE_BUFFER_STOP:
-			rc = voice_buffer_command_stop(pcmd, cmd_len);
-			break;
-
-		case CMD_VOICE_BUFFER_RESET:
-			rc = voice_buffer_command_reset(pcmd, cmd_len);
-			break;
-#endif // 0
 		default:
 			rc = ERR_UNKNOWN_COMMAND;
 			break;

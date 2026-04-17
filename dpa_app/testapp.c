@@ -27,13 +27,8 @@
 #define SPORT_START             10000
 #define DPORT_START             20000
 #define MAX_CONNECTIONS         2
-#ifdef T4240RDB
-#define IFACE_1        		(char *)"fm2-mac1"
-#define IFACE_2        		(char *)"fm2-mac2"
-#else
-#define IFACE_1        		(char *)"eth2"
-#define IFACE_2        		(char *)"eth3"
-#endif
+#define IFACE_1			(char *)"eth2"
+#define IFACE_2			(char *)"eth3"
 
 
 #define FWD_ARP_ENTRY           0
@@ -160,14 +155,16 @@ int show_muram(struct cli_def *cli, char *command, char *argv[], int argc)
         memset(print_data, 0, PRINT_BUF_SIZE);
         dst_ptr = print_data;
         for (ii = 0; ii < muram_data.size; ii++) {
+                size_t remain = (size_t)(print_data + PRINT_BUF_SIZE - dst_ptr);
                 if (!(ii % 16)) {
                         cli_print(cli, "%s", print_data);
                         memset(print_data, 0, PRINT_BUF_SIZE);
                         dst_ptr = print_data;
-                        dst_ptr += sprintf(dst_ptr, "%04x:%02x ", ii, *src_ptr);
+                        remain = PRINT_BUF_SIZE;
+                        dst_ptr += snprintf(dst_ptr, remain, "%04x:%02x ", ii, *src_ptr);
                 }
                 else
-                        dst_ptr += sprintf(dst_ptr, "%02x ", *src_ptr);
+                        dst_ptr += snprintf(dst_ptr, remain, "%02x ", *src_ptr);
                 src_ptr++;
         }
         if (ii % 16)
@@ -203,14 +200,16 @@ void show_muram_temp(void)
         memset(print_data, 0, PRINT_BUF_SIZE);
         dst_ptr = print_data;
         for (ii = 0; ii < muram_data.size; ii++) {
+                size_t remain = (size_t)(print_data + PRINT_BUF_SIZE - dst_ptr);
                 if (!(ii % 16)) {
                         printf("%s\n", print_data);
                         memset(print_data, 0, PRINT_BUF_SIZE);
                         dst_ptr = print_data;
-                        dst_ptr += sprintf(dst_ptr, "%04x:%02x ", ii, *src_ptr);
+                        remain = PRINT_BUF_SIZE;
+                        dst_ptr += snprintf(dst_ptr, remain, "%04x:%02x ", ii, *src_ptr);
                 }
                 else
-                        dst_ptr += sprintf(dst_ptr, "%02x ", *src_ptr);
+                        dst_ptr += snprintf(dst_ptr, remain, "%02x ", *src_ptr);
                 src_ptr++;
         }
         if (ii % 16)

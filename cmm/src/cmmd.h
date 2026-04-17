@@ -359,19 +359,6 @@ typedef struct cmmd_saquery_timer {
 /*-------------------------------------------*/
 
 /*----------------DPI---------------------------------*/
-#ifdef COMCERTO_2000 
-
-#define CMMD_CMD_DPIENABLE	0x1601
-
-/*-Structure representing the command sent to configure DPI enable/disable Flag */
-typedef struct cmmd_dpi_enable {
-	int32_t		action;
-}cmmd_dpi_enable_t;
-
-#define CMMD_DPIFLAG_ACTION_ENABLE		0
-#define CMMD_DPIFLAG_ACTION_DISABLE		1
-
-#endif /*C2000_DPI*/
 /*----------------DPI---------------------------*/
 
 /*-------------Asymmetric fast forward------------------*/

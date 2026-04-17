@@ -184,20 +184,7 @@ static __inline u_int32_t HASH_CT(int family, const u_int32_t *Saddr, const u_in
 	return jhash_2words(a, b, 0x48375934) % CONNTRACK_HASH_TABLE_SIZE;
 }
 
-#ifdef C2000_DPI
 
-#define DPI_UNKNOWN_CMD     0
-#define DPI_ENABLE_CMD      1
-
-int cmmDPIFlagSetProcess(char ** keywords, int tabStart, daemon_handle_t daemon_handle);
-int cmmDPIEnableShow(struct cli_def * cli, const char *command, char *argv[], int argc);
-int cmmDPIFlagProcessClientCmd(u_int8_t *cmd_buf, u_int16_t *res_buf, u_int16_t *res_len);
-
-#endif /*C2000_DPI*/
-
-#ifdef LS1012A
-#define  CONFIG_IPSEC_PASSTHRU 1
-#endif
 
 #if defined (LS1043)
 #define  CONFIG_IPSEC_ESP_PASSTHRU 1

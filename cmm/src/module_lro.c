@@ -10,6 +10,9 @@
  *
  *
  */
+#include <unistd.h>
+#include <sys/wait.h>
+
 #include "cmm.h"
 #include "fpp_private.h"
 #include "fpp.h"
@@ -51,7 +54,8 @@ int lro_interface_add(char *ifname)
 void lro_interface_update(struct interface *itf)
 {
 	int i;
-	char cmd[32 + IFNAMSIZ];
+	pid_t pid;
+	int status;
 
 	for (i = 0; i < LRO_MAX_ITF; i++)
 	{
@@ -61,9 +65,18 @@ void lro_interface_update(struct interface *itf)
 
 			itf->flags |= ITF_LRO;
 
-			snprintf(cmd, 32 + IFNAMSIZ, "ethtool -K %s lro on", itf->ifname);
-			if(system(cmd) == -1)
-				cmm_print(DEBUG_ERROR, "%s: system command failed...  \n", __func__);					
+			/* fork+execvp avoids shell-interpreting interface names
+			 * (Linux ifnames can contain `;`, `&`, `|` etc.). */
+			pid = fork();
+			if (pid < 0) {
+				cmm_print(DEBUG_ERROR, "%s: fork failed\n", __func__);
+			} else if (pid == 0) {
+				execlp("ethtool", "ethtool", "-K", itf->ifname, "lro", "on", (char *)NULL);
+				_exit(127);
+			} else {
+				if (waitpid(pid, &status, 0) < 0 || !WIFEXITED(status) || WEXITSTATUS(status) != 0)
+					cmm_print(DEBUG_ERROR, "%s: ethtool failed for %s\n", __func__, itf->ifname);
+			}
 			break;
 		}
 	}

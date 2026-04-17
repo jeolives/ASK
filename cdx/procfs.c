@@ -21,52 +21,73 @@ static struct fqid_file_list_node_s *fqid_files_g = NULL;
 
 static ssize_t proc_fqid_stats_read(struct file *fp, char __user *buff, size_t size, loff_t *ppos)
 {
-	struct qman_fq *fq_info = NULL;
+	struct qman_fq *fq_info;
 	struct qm_mcr_queryfq_np np;
-	struct qm_fqd fqd_inst,*fqd;
+	struct qm_fqd fqd_inst, *fqd;
 	struct fqid_file_list_node_s *node;
+	const char *name;
+	char *kbuf;
+	size_t kbuf_size = 1024;
+	size_t remaining;
 	int len = 0;
-	uint8_t *name;
-
-	name = (uint8_t *)fp->f_path.dentry->d_name.name;
+	ssize_t rc;
 
 	if (*ppos)
 		return 0;
 
+	name = fp->f_path.dentry->d_name.name;
 	node = pde_data(file_inode(fp));
-	printk("%s()::%d node %p\n", __func__, __LINE__, node);
 
-	if (!node || !node->fq)
-	{
-		len += sprintf(buff, "===========================================\n::file %s\n", name);
-		len += sprintf(buff + len, "corresponding FQ ID not created by CDX module\n");
-		*ppos +=len;
-		return len;
+	kbuf = kmalloc(kbuf_size, GFP_KERNEL);
+	if (!kbuf)
+		return -ENOMEM;
+
+#define APPEND(fmt, ...) do { \
+		remaining = (len < kbuf_size) ? kbuf_size - len : 0; \
+		len += scnprintf(kbuf + len, remaining, fmt, ##__VA_ARGS__); \
+	} while (0)
+
+	if (!node || !node->fq) {
+		APPEND("===========================================\n::file %s\n", name);
+		APPEND("corresponding FQ ID not created by CDX module\n");
+		goto out;
 	}
 
-	fq_info = node->fq;		
-	len += sprintf(buff, "===========================================\n::fqid %x(%d)\n", node->fqid, node->fqid);
+	fq_info = node->fq;
+	APPEND("===========================================\n::fqid %x(%d)\n",
+	       node->fqid, node->fqid);
+
 	if (qman_query_fq(fq_info, &fqd_inst)) {
-		len += sprintf(buff + len, "error getting fq fields\n");
-		*ppos +=len;
-		return len;
+		APPEND("error getting fq fields\n");
+		goto out;
 	}
 	fqd = &fqd_inst;
-	len += sprintf(buff+len, "fqctrl\t%x\n", fqd->fq_ctrl);
-	len += sprintf(buff+len, "channel\t%x\n", fqd->dest.channel);
-	len += sprintf(buff+len, "Wq\t%d\n", fqd->dest.wq);
-	len += sprintf(buff+len, "contextb\t%x\n", fqd->context_b);
-	len += sprintf(buff+len, "contexta\t%p\n", (void *)fqd->context_a.opaque);
+	APPEND("fqctrl\t%x\n", fqd->fq_ctrl);
+	APPEND("channel\t%x\n", fqd->dest.channel);
+	APPEND("Wq\t%d\n", fqd->dest.wq);
+	APPEND("contextb\t%x\n", fqd->context_b);
+	APPEND("contexta\t%p\n", (void *)fqd->context_a.opaque);
+
 	if (qman_query_fq_np(fq_info, &np)) {
-		len += sprintf(buff + len, "error getting fq fields\n");
-		*ppos +=len;
-		return len;
+		APPEND("error getting fq fields\n");
+		goto out;
 	}
-	len += sprintf(buff+len, "state\t%d\n", np.state);
-	len += sprintf(buff+len, "byte count\t%d\n", np.byte_cnt);
-	len += sprintf(buff+len, "frame count\t%d\n", np.frm_cnt);
-	*ppos +=len;
-	return len;
+	APPEND("state\t%d\n", np.state);
+	APPEND("byte count\t%d\n", np.byte_cnt);
+	APPEND("frame count\t%d\n", np.frm_cnt);
+
+out:
+#undef APPEND
+	if (len > size)
+		len = size;
+	if (copy_to_user(buff, kbuf, len))
+		rc = -EFAULT;
+	else
+		rc = len;
+	kfree(kbuf);
+	if (rc > 0)
+		*ppos += rc;
+	return rc;
 }
 
 static const struct proc_ops proc_fqid_stats = {

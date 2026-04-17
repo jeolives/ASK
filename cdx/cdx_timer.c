@@ -13,8 +13,8 @@
 #include "cdx.h"
 
 
-u32 x_inner = 0;
-u32 x_outer = 0;
+static u32 x_inner;
+static u32 x_outer;
 
 
 void cdx_timer_init(TIMER_ENTRY *timer, TIMER_HANDLER handler)

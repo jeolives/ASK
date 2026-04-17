@@ -1978,10 +1978,6 @@ static int __cmmCtRegister(FCI_CLIENT *fci_handle, struct nfct_handle *handle, s
 			rtEntryPolicy = cmmPolicyRouting(sAddrRepl[0], sAddrOrig[0], proto, sPortRepl, sPortOrig);
 			if (rtEntryPolicy)
 			{
-#if 0
-				if (rtEntryRep)
-					____cmmRouteDeregister(rtEntryRep, "replier");
-#endif
 				rtEntryRep = rtEntryPolicy;
 			}
 		}
@@ -2451,13 +2447,6 @@ static int __cmmCtCatch(struct cmm_ct *ctx, enum nf_conntrack_msg_type type, str
 	if (globalConf.enable == 0)
 		goto exit;
 
-#ifdef C2000_DPI
-	status = nfct_get_attr_u32(ct, ATTR_STATUS);
-	if ((globalConf.dpi_enable) && ((status & IPS_DPI_ALLOWED) != IPS_DPI_ALLOWED))
-	{
-		goto exit;
-	}
-#endif
 
 	l3proto = nfct_get_attr_u8(ct, ATTR_ORIG_L3PROTO);
 
@@ -2706,90 +2695,6 @@ static void cmmCtKernelModuleUnInit()
 
 	file_write(TCP_BE_LIBERAL_PATH, "0", 1);
 }
-#ifdef APP_SOLICIT
-/*****************************************************************
-* cmmNeighborKernelModuleInit
-* 
-*
-******************************************************************/
-static int cmmRtnlKernelModuleInit()
-{
-	cmm_print(DEBUG_INFO, "%s:\n", __func__);
-
-	/*Prepare the neighbor code to be in a good configuration*/
-	if (file_write(APP_SOLICIT_IPV4_PATH, "1", 1) < 0)
-	{
-		goto err0;
-	}
-
-	if (file_write(APP_SOLICIT_IPV4_WAN_PATH, "1", 1) < 0)
-	{
-		goto err1;
-	}
-
-	if (file_write(APP_SOLICIT_IPV4_LAN_PATH, "1", 1) < 0)
-	{
-		goto err2;
-	}
-
-	if (file_write(APP_SOLICIT_IPV6_PATH, "1", 1) < 0)
-	{
-		goto err3;
-	}
-
-	if (file_write(APP_SOLICIT_IPV6_WAN_PATH, "1", 1) < 0)
-	{
-		goto err4;
-	}
-
-	if (file_write(APP_SOLICIT_IPV6_LAN_PATH, "1", 1) < 0)
-	{
-		goto err5;
-	}
-
-	return 0;
-
-err5:
-	file_write(APP_SOLICIT_IPV6_WAN_PATH, "0", 1);
-
-err4:
-	file_write(APP_SOLICIT_IPV6_PATH, "0", 1);
-
-err3:
-	file_write(APP_SOLICIT_IPV4_LAN_PATH, "0", 1);
-
-err2:
-	file_write(APP_SOLICIT_IPV4_WAN_PATH, "0", 1);
-
-err1:
-	file_write(APP_SOLICIT_IPV4_PATH, "0", 1);
-
-err0:
-	return -1;
-}
-
-/*****************************************************************
-* cmmNeighborKernelModuleUnInit
-* 
-*
-******************************************************************/
-static void cmmRtnlKernelModuleUnInit()
-{
-	cmm_print(DEBUG_INFO, "%s:\n", __func__);
-
-	file_write(APP_SOLICIT_IPV4_PATH, "0", 1);
-
-	file_write(APP_SOLICIT_IPV4_WAN_PATH, "0", 1);
-
-	file_write(APP_SOLICIT_IPV4_LAN_PATH, "0", 1);
-
-	file_write(APP_SOLICIT_IPV6_PATH, "0", 1);
-
-	file_write(APP_SOLICIT_IPV6_WAN_PATH, "0", 1);
-
-	file_write(APP_SOLICIT_IPV6_LAN_PATH, "0", 1);
-}
-#endif
 
 
 
@@ -3229,12 +3134,6 @@ int cmmCtInit(struct cmm_ct *ctx)
 	{
 		goto err0;
 	}
-#ifdef APP_SOLICIT
-	if (cmmRtnlKernelModuleInit() < 0)
-	{
-		goto err1;
-	}
-#endif
 	ctx->fci_catch_handle = fci_open(FCILIB_FF_TYPE, NL_FF_GROUP);
 	if (!ctx->fci_catch_handle)
 	{
@@ -3474,10 +3373,6 @@ err3:
 	fci_close(ctx->fci_catch_handle);
 
 err2:
-#ifdef APP_SOLICIT
-	cmmRtnlKernelModuleUnInit();
-err1:
-#endif
 
 	cmmCtKernelModuleUnInit();
 
@@ -3529,9 +3424,6 @@ void cmmCtExit(struct cmm_ct *ctx)
 
 	fci_close(ctx->fci_catch_handle);
 
-#ifdef APP_SOLICIT
-	cmmRtnlKernelModuleUnInit();
-#endif
 	cmmCtKernelModuleUnInit();
 
 	if (p_nfconn_update)
@@ -3911,107 +3803,4 @@ void cmmQosmarkSet(struct nf_conntrack *ct, u_int64_t qosmark)
 #endif
 }
 
-#ifdef C2000_DPI
-/*****************************************************************
-* cmmDPIEnableShow
-*
-*
-******************************************************************/
-int cmmDPIEnableShow(struct cli_def * cli, const char *command, char *argv[], int argc)
-{
-	if(globalConf.dpi_enable)
-		cli_print(cli, " The DPI flag is enabled");
-	else
-		cli_print(cli, " The DPI flag is disabled");
-	return CLI_OK;
-}
-
-int cmmDPIFlagProcessClientCmd(u_int8_t *cmd_buf, u_int16_t *res_buf, u_int16_t *res_len)
-{
-        cmmd_dpi_enable_t    *entryCmd = (cmmd_dpi_enable_t*) cmd_buf;
-
-        cmm_print(DEBUG_INFO, "cmmDPIFlagProcessClientCmd\n");
-
-        res_buf[0] = CMMD_ERR_OK;
-        *res_len = 2;
-
-        switch (entryCmd->action) {
-                case CMMD_DPIFLAG_ACTION_ENABLE:
-                        cmm_print(DEBUG_INFO, "cmmDPIFlagProcessClientCmd- CMMD_DPIFLAG_ACTION_ENABLE\n");
-                        globalConf.dpi_enable = 1;
-                        break;
-
-                case CMMD_DPIFLAG_ACTION_DISABLE:
-                        cmm_print(DEBUG_INFO, "cmmDPIFlagProcessClientCmd- CMMD_DPIFLAG_ACTION_DISABLE\n");
-                        globalConf.dpi_enable = 0;
-                        break;
-
-                default:
-                        res_buf[0] = CMMD_ERR_UNKNOWN_ACTION;
-                        break;
-        }
-        return 0;
-}
-
-void cmmDPIFlagPrintHelp(int cmd_type)
-{
-        if (cmd_type == DPI_UNKNOWN_CMD || cmd_type == DPI_ENABLE_CMD)
-        {
-            cmm_print(DEBUG_STDOUT, "Usage: set dpi enable \n"
-                                    "       set dpi disable \n");
-        }
-}
-
-int cmmDPIFlagSetProcess(char ** keywords, int tabStart, daemon_handle_t daemon_handle)
-{
-	int cmd_type = DPI_UNKNOWN_CMD;
-	int cpt = tabStart;
-	int rc;
-
-	char sndBuffer[256];
-	union u_rxbuf rxbuf;
-	cmmd_dpi_enable_t* entryCmd = (cmmd_dpi_enable_t*) sndBuffer;
-
-	memset(sndBuffer, 0, sizeof(sndBuffer));
-	cmm_print(DEBUG_INFO, "Entered DPI Flag Set Process\n");
-
-	if(!keywords[cpt])
-		goto help;
-
-	if( (strcasecmp(keywords[cpt], "enable") == 0) ||
-	    (strcasecmp(keywords[cpt], "disable") == 0) )
-	{
-		cmd_type = DPI_ENABLE_CMD;
-
-		if(strcasecmp(keywords[cpt], "enable") == 0)
-			entryCmd->action = CMMD_DPIFLAG_ACTION_ENABLE;
-		else
-			entryCmd->action = CMMD_DPIFLAG_ACTION_DISABLE;
-	}
-	else
-		goto keyword_error;
-
-	rc = cmmSendToDaemon(daemon_handle, CMMD_CMD_DPIENABLE, sndBuffer, sizeof(cmmd_dpi_enable_t), rxbuf.rcvBuffer);
-	if(rc != 2)
-	{
-		if(rc >= 0)
-			cmm_print(DEBUG_STDERR, "Unexpected response size for CMD_DPIENABLE: %d\n", rc);
-		return -1;
-	}
-	else if (rxbuf.result != CMMD_ERR_OK)
-	{
-		showErrorMsg("CMD_DPIENABLE", ERRMSG_SOURCE_CMMD, rxbuf.rcvBuffer);
-		return -1;
-	}
-        
-	return 0;
-
-keyword_error:
-	cmm_print(DEBUG_CRIT, "ERROR: Unknown keyword %s\n", keywords[cpt]);
-
-help:
-	cmmDPIFlagPrintHelp(cmd_type);
-	return -1;
-}
-#endif /*C2000_DPI*/
 

@@ -650,7 +650,7 @@ static int create_ipsec_fqs(struct dpa_ipsec_sainfo *ipsecsa_info, uint32_t sche
 	uint32_t fqids_base;
 #endif /* UNIQUE_IPSEC_CP_FQID */
 	int to_sec_fq = 0;
-	uint8_t sa_id_name[8]="";
+	uint8_t sa_id_name[16] = "";
 
 	//get cpu portal channel info
 #ifdef UNIQUE_IPSEC_CP_FQID
@@ -680,7 +680,7 @@ static int create_ipsec_fqs(struct dpa_ipsec_sainfo *ipsecsa_info, uint32_t sche
 #endif /* UNIQUE_IPSEC_CP_FQID */
 
 
-	ipsecsa_info->shdesc_mem = 
+	ipsecsa_info->shdesc_mem =
 		kzalloc((sizeof(struct sec_descriptor) + PRE_HDR_ALIGN), GFP_KERNEL);
 	if (!ipsecsa_info->shdesc_mem)
 	{
@@ -688,7 +688,6 @@ static int create_ipsec_fqs(struct dpa_ipsec_sainfo *ipsecsa_info, uint32_t sche
 				__FUNCTION__);
 		goto err_ret0;
 	}
-	memset(ipsecsa_info->shdesc_mem, 0, (sizeof(struct sec_descriptor)+PRE_HDR_ALIGN));
 	ipsecsa_info->shared_desc = (struct sec_descriptor *)
 		PTR_ALIGN(ipsecsa_info->shdesc_mem, PRE_HDR_ALIGN);
 
@@ -702,7 +701,7 @@ static int create_ipsec_fqs(struct dpa_ipsec_sainfo *ipsecsa_info, uint32_t sche
 	}
 #endif /* UNIQUE_IPSEC_CP_FQID */
 
-	sprintf(sa_id_name, "0x%x", handle);
+	snprintf(sa_id_name, sizeof(sa_id_name), "0x%x", handle);
 	if (cdx_create_dir_in_procfs(&ipsecsa_info->sa_proc_entry, sa_id_name, SA_DIR)) {
 		DPAIPSEC_ERROR("%s:: create pcd proc entry failed %s\n", 
 				__FUNCTION__, sa_id_name);
@@ -1006,7 +1005,7 @@ int cdx_init_skb_2bfreed_bpool(void)
 	struct port_bman_pool_info parent_pool_info;
 
 	// allocate memory for bpool
-	bp = kzalloc(sizeof(struct dpa_bp), 0);
+	bp = kzalloc(sizeof(struct dpa_bp), GFP_KERNEL);
 	if (unlikely(bp == NULL)) {
 		DPAIPSEC_ERROR("%s(%d)::failed to mem for non_recyclable SKB free bman pool\n",
 				__FUNCTION__,__LINE__);
@@ -1042,7 +1041,7 @@ int cdx_init_scatter_gather_bpool(void)
 	struct port_bman_pool_info parent_pool_info;
 	int ret =0;
 
-	bp = kzalloc(sizeof(struct dpa_bp), 0);
+	bp = kzalloc(sizeof(struct dpa_bp), GFP_KERNEL);
 	if (unlikely(bp == NULL)) {
 		DPAIPSEC_ERROR("%s::failed to allocate mem for SG bman pool\n", 
 				__FUNCTION__);
@@ -1090,7 +1089,7 @@ static int add_ipsec_bpool(struct ipsec_info *info)
 	printk (KERN_INFO"\n ################## %s", 
 			__FUNCTION__);
 
-	bp = kzalloc(sizeof(struct dpa_bp), 0);
+	bp = kzalloc(sizeof(struct dpa_bp), GFP_KERNEL);
 	if (unlikely(bp == NULL)) {
 		DPAIPSEC_ERROR("%s::failed to allocate mem for bman pool for ipsec\n", 
 				__FUNCTION__);

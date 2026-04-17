@@ -591,11 +591,6 @@ static U16 M_ipv6_cmdproc(U16 cmd_code, U16 cmd_len, U16 *pcmd)
 			rc = SOCKET6_HandleIP_Socket_Update(pcmd, cmd_len);
 			break;
 
-#ifdef CDX_TODO_IPV6FRAG
-		case CMD_IPV6_FRAGTIMEOUT:
-			rc = IPv6_HandleIP_Set_FragTimeout(pcmd, cmd_len);
-			break;
-#endif
 
 		default:
 			rc = ERR_UNKNOWN_COMMAND;

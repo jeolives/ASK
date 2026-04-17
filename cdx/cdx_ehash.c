@@ -480,7 +480,7 @@ int delete_entry_from_classif_table(PCtEntry entry)
 	}
 	if (!entry->ct)
 	{
-		DPA_ERROR("%s:: entry->ct is NULL (already freed?)\n", __FUNCTION__);
+		DPA_ERROR("%s:: entry->ct is NULL (already freed?)\n", __func__);
 		return FAILURE;
 	}
 

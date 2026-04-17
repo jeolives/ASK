@@ -323,12 +323,12 @@ static int M_bridge_handle_l2flow(U16 *p, U16 Length)
 	 */
 	if (!is_valid_ether_addr(pcmd->srcaddr)) {
 		printk("%s::invalid source MAC (zero or multicast)\n",
-		       __FUNCTION__);
+		       __func__);
 		return ERR_WRONG_COMMAND_PARAM;
 	}
 	if (is_zero_ether_addr(pcmd->destaddr)) {
 		printk("%s::invalid destination MAC (all zero)\n",
-		       __FUNCTION__);
+		       __func__);
 		return ERR_WRONG_COMMAND_PARAM;
 	}
 	//fill flow params from command

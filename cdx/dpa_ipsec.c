@@ -315,7 +315,7 @@ static enum qman_cb_dqrr_result ipsec_exception_pkt_handler(struct qman_portal *
 	net_dev = (struct net_device *) M_ipsec_get_sa_netdev(sagd_pkt );
 #endif /* UNIQUE_IPSEC_CP_FQID */
 
-	if(!net_dev ){
+	if (unlikely(!net_dev)) {
 #ifdef DPA_IPSEC_DEBUG
 		DPAIPSEC_INFO("%s:: Could not find or delete mark set in inbound SA, droping pkt \n",__func__);
 #endif
@@ -323,7 +323,7 @@ static enum qman_cb_dqrr_result ipsec_exception_pkt_handler(struct qman_portal *
 	}
 
 	use_gro = !!(net_dev->features & NETIF_F_GRO);
-	if ((x = xfrm_state_lookup_byhandle(dev_net(net_dev), sagd_pkt )) == NULL)
+	if (unlikely((x = xfrm_state_lookup_byhandle(dev_net(net_dev), sagd_pkt)) == NULL))
 	{
 #ifdef DPA_IPSEC_DEBUG
 		DPAIPSEC_INFO("%s(%d) xfrm_state not found. Dropping pkt\n", __func__,__LINE__);

@@ -9,9 +9,9 @@
  */
 #include "cdx.h"
 
-CmdProc gCmdProcTable[EVENT_MAX];
+CmdProc gCmdProcTable[EVENT_MAX] __read_mostly;
 
-int FCODE_TO_EVENT(U32 fcode)
+static inline int FCODE_TO_EVENT(U32 fcode)
 {
 	int eventid;
 	switch((fcode & 0xFF00) >> 8)

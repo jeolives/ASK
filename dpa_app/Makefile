@@ -16,7 +16,10 @@ TARGET = dpa_app
 all:	$(TARGET)
 
 LDFLAGS += -lpthread -lcli
-CFLAGS += -DDPAA_DEBUG_ENABLE
+# DPAA_DEBUG_ENABLE gates testapp.c debug prints only. testapp itself is
+# opt-in (ENABLE_TESTAPP, off by default) — both flags are set together
+# when you actually want the test harness.
+#CFLAGS += -DDPAA_DEBUG_ENABLE
 
 $(TARGET): $(OBJS)
 	$(CC) $(CFLAGS) -o $(TARGET) $(OBJS) $(LDFLAGS)

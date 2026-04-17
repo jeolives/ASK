@@ -23,7 +23,7 @@
 
 // Global variables
 
-GLOBAL_DEFINE struct _cdx_info *cdx_info;
+GLOBAL_DEFINE struct _cdx_info *cdx_info __read_mostly;
 GLOBAL_DEFINE int ff_enable GLOBAL_INIT(1);
 GLOBAL_DEFINE U32 udp_unidir_timeout;
 GLOBAL_DEFINE U32 udp_bidir_timeout;

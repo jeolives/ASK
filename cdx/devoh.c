@@ -54,11 +54,11 @@ struct oh_port_info {
 };
 
 struct oh_port_type {
-	char *name;
+	const char *name;
 	uint32_t type;
 };
 
-static struct oh_port_type ohport_assign[] = 
+static const struct oh_port_type ohport_assign[] =
 {
 	{"dpa-fman0-oh@3", PORT_TYPE_WIFI},
 	{"dpa-fman0-oh@2", PORT_TYPE_IPSEC},

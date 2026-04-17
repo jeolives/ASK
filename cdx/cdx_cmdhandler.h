@@ -325,7 +325,6 @@ enum EVENTS {
 #define CMD_OK	0x0000
 #define CMD_ERR 0xFFFE
 
-int FCODE_TO_EVENT(U32 fcode);
 void cdx_cmd_handler(U16 fcode, U16 length, U16 *payload, U16 *rlen, U16 *rbuf);
 void comcerto_fpp_workqueue(struct work_struct *work);
 int cdx_cmdhandler_init(void);

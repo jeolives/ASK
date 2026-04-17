@@ -11,6 +11,7 @@
  */
 
 #include <sys/socket.h>
+#include <sys/time.h>
 #include <sys/types.h>
 #include <stdlib.h>
 #include <string.h>
@@ -493,6 +494,18 @@ static FCI_CLIENT *fci_create_client(int nl_type, unsigned long group)
 			close(socket_id);
 			goto err1;
 		}
+	}
+
+	/* Default receive timeout so a wedged kernel-side peer does not
+	 * block the caller forever in fci_get_response()/fci_read(). The
+	 * fci_catch() event loop already handles EAGAIN by breaking out,
+	 * so the timeout is transparent to the catch path. Applications
+	 * that need a different value can override via setsockopt after
+	 * fci_open() using the fd from fci_fd(). */
+	{
+		struct timeval rcv_tv = { .tv_sec = 5, .tv_usec = 0 };
+		(void)setsockopt(socket_id, SOL_SOCKET, SO_RCVTIMEO,
+				 &rcv_tv, sizeof(rcv_tv));
 	}
 
 	/* fill client properties */

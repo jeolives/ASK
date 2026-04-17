@@ -2009,7 +2009,7 @@ static int __cmmCtRegister(FCI_CLIENT *fci_handle, struct nfct_handle *handle, s
 
 		ct_stats.created++;
 
-		if (globalConf.asymff_enable) {
+		if (__atomic_load_n(&globalConf.asymff_enable, __ATOMIC_ACQUIRE)) {
 			if(cmmFcIsConntrackAsymFastForwarded(ct))
 				ctEntry->dir_filter = ORIGINATOR;
 		}

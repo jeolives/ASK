@@ -31,6 +31,10 @@
 
 struct cmm_global globalConf;
 unsigned int nf_conntrack_max = CONNTRACK_MAX;
+#ifdef MUTEX_DEBUG
+/* Pairs with `extern int mutexes;` declared in cmm.h. */
+int mutexes;
+#endif
 
 #ifdef ARCH_ARM32
 struct kernel_ucontext {
@@ -355,6 +359,9 @@ int main (int argc, char ** argv)
 	globalConf.tun_family = AF_INET6;
 	globalConf.enable_sam_itfs = 0; /* by default , this option will be disabled */
 
+#ifdef MUTEX_DEBUG
+	mutexes = 0;
+#endif
 
 	action.sa_sigaction = cmm_crit_err_hdlr;
 	sigemptyset (&action.sa_mask);

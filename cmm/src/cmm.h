@@ -128,8 +128,50 @@
 	/* This debug is not controlled via CLI */
 	#define IPSEC_DBG
 
+	#ifdef MUTEX_DEBUG
+
+	extern pthread_mutex_t ctMutex;
+	extern pthread_mutex_t rtMutex;
+	extern pthread_mutex_t neighMutex;
+#ifdef IPSEC_FLOW_CACHE
+	extern pthread_mutex_t flowMutex;
+#endif /* IPSEC_FLOW_CACHE */
+
+	/* Definition lives in cmm.c; extern here so every translation unit
+	 * that includes cmm.h does not emit its own tentative definition
+	 * (rejected under gcc-10+ default -fno-common with multiple-def
+	 * link errors). */
+	extern int mutexes;
+#ifdef IPSEC_FLOW_CACHE
+#define __MUTEX_DEBUG_FLOW_LOCK		else if (mutex == &flowMutex) mutexes |= 0x1000;
+#define __MUTEX_DEBUG_FLOW_UNLOCK	else if (mutex == &flowMutex) mutexes &= ~0x1000;
+#else
+#define __MUTEX_DEBUG_FLOW_LOCK
+#define __MUTEX_DEBUG_FLOW_UNLOCK
+#endif
+	#define __pthread_mutex_lock(mutex)		\
+		({	\
+			if (mutex == &ctMutex) mutexes |= 0x1; \
+			else if (mutex == &rtMutex) mutexes |= 0x10; \
+			else if (mutex == &neighMutex) mutexes |= 0x100; \
+			__MUTEX_DEBUG_FLOW_LOCK \
+			cmm_print(DEBUG_CRIT, "0x%04x: lock at %s %u\n", mutexes, __func__, __LINE__); \
+			pthread_mutex_lock (mutex);	\
+		})
+	#define __pthread_mutex_unlock(mutex)		\
+		({	\
+			if (mutex == &ctMutex) mutexes &= ~0x1; \
+			else if (mutex == &rtMutex) mutexes &= ~0x10; \
+			else if (mutex == &neighMutex) mutexes &= ~0x100; \
+			__MUTEX_DEBUG_FLOW_UNLOCK \
+			cmm_print(DEBUG_CRIT, "0x%04x: unlock at %s %u\n", mutexes, __func__, __LINE__); \
+			pthread_mutex_unlock (mutex);	\
+		})
+
+	#else
 	#define __pthread_mutex_lock pthread_mutex_lock
 	#define __pthread_mutex_unlock pthread_mutex_unlock
+	#endif
 
 
         /* This macro is used for PPPoE Auto mode */

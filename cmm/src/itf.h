@@ -23,7 +23,13 @@
 #include "rtnl.h"
 #include "list.h"
 
+#ifdef LS1043
 #define GEM_PORTS 7
+#elif defined(LS1012A)
+#define GEM_PORTS 2
+#else
+#define GEM_PORTS 2
+#endif
 
 /* default value for WAN interface is eth0, and LAN interface is eth2 */
 #define GEMAC0_PORT	0 //do not change !

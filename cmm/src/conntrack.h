@@ -186,6 +186,10 @@ static __inline u_int32_t HASH_CT(int family, const u_int32_t *Saddr, const u_in
 
 
 
+#ifdef LS1012A
+#define  CONFIG_IPSEC_PASSTHRU 1
+#endif
+
 #if defined (LS1043)
 #define  CONFIG_IPSEC_ESP_PASSTHRU 1
 #endif

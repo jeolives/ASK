@@ -192,8 +192,159 @@ help:
 
 int cmmQmQueryProcess(char **keywords, int tabStart, daemon_handle_t daemon_handle) 
 {
+#ifdef ENABLE_EGRESS_QOS 
+	int rcvBytes;
+	fpp_qm_query_cmd_t *query;
+	int cpt = tabStart;
+	char *ifname;
+	union u_rxbuf rxbuf;
+	uint32_t ii;
+        short rc;
+	uint32_t clear_stats;
+	uint64_t val;
+	uint32_t chnl_map;
+       
+	if(!keywords[cpt])
+		goto help;
+	if(strcasecmp(keywords[cpt], "interface") != 0)
+		goto help;
+	if(!keywords[++cpt])
+		goto help;
+	/* get port parameters */
+	query = (fpp_qm_query_cmd_t *)rxbuf.rcvBuffer;
+	memset(query, 0, sizeof(fpp_qm_query_cmd_t));
+	ifname = keywords[cpt];
+	STR_TRUNC_COPY(query->interface, ifname, sizeof(query->interface));
+	cpt++;
+	clear_stats = 0;
+	if (keywords[cpt]) {
+		/* look for stats clear command */
+		if(strcasecmp(keywords[cpt], "clearstats") == 0)
+			clear_stats = 1;
+	}
+	rcvBytes = cmmSendToDaemon(daemon_handle, FPP_CMD_QM_QUERY,
+	    				query, sizeof(fpp_qm_query_cmd_t), rxbuf.rcvBuffer);
+	if (rcvBytes != sizeof(fpp_qm_query_cmd_t))
+	{
+		rc = (rcvBytes < sizeof(unsigned short) ) ? 0 : rxbuf.result;
+		cmm_print(DEBUG_STDERR, "ERROR: Unexpected result returned from FPP rc:%d bytes %d\n", rc,
+			rcvBytes);
+		return CLI_OK;
+	}
+	if (!query->if_qos_enabled) {
+		cmm_print(DEBUG_STDOUT, "Interface %s qos disabled\n", ifname);
+		return CLI_OK;
+	}
+	cmm_print(DEBUG_STDOUT, "Egress QOS info %s::\n", ifname);
+	if (!query->shaper_enabled)  {
+		cmm_print(DEBUG_STDOUT, "port shaper:: disabled\n");
+	} else {
+		cmm_print(DEBUG_STDOUT, "port shaper:: rate in kbps %d, bucketsize %d\n", 
+				query->rate, query->bsize);
+	}
+	chnl_map = 0;
+	for (ii = 0; ii < MAX_CHANNELS; ii++)  {
+		if (query->chnl_shaper_info[ii].valid) {
+			chnl_map |= (1 << ii);
+			if (query->chnl_shaper_info[ii].shaper_enabled) {
+				cmm_print(DEBUG_STDOUT, "channel %d, shaper enabled - rate in kbps %d bucketsize %d\n",
+					(ii + 1), query->chnl_shaper_info[ii].rate,
+					query->chnl_shaper_info[ii].bsize);
+			} else {
+				cmm_print(DEBUG_STDOUT, "channel %d, shaper disabled\n", (ii + 1));
+			}
+		}
+	}
+	if (!chnl_map) {
+		cmm_print(DEBUG_STDOUT, "channels not assigned to interface\n");
+		return CLI_OK;
+	}
+	for (ii = 0; ii < MAX_CHANNELS; ii++)  {
+		uint32_t jj;
+
+		if (!(chnl_map & (1 << ii)))
+			continue;
+
+		for (jj = 0; jj < MAX_QUEUES; jj++) {
+			fpp_qm_cq_query_cmd_t *cq_query;
+
+			cq_query = (fpp_qm_cq_query_cmd_t *)rxbuf.rcvBuffer;
+			/* query channel */
+			memset(cq_query, 0, sizeof(fpp_qm_cq_query_cmd_t));
+			/* upper nibble is channel number */
+			cq_query->channel_num = ii;
+			cq_query->clear_stats = clear_stats;
+			cq_query->queuenum = jj;
+			rcvBytes = cmmSendToDaemon(daemon_handle, FPP_CMD_QM_QUERY_QUEUE,
+				cq_query, sizeof(fpp_qm_cq_query_cmd_t), rxbuf.rcvBuffer);
+			if (rcvBytes != sizeof(fpp_qm_cq_query_cmd_t)) {
+				rc = (rcvBytes < sizeof(unsigned short) ) ? 0 : rxbuf.result;
+				cmm_print(DEBUG_STDERR, "ERROR: Unexpected result returned from FPP rc:%d\n", rc);
+				return CLI_OK;
+			}
+			cmm_print(DEBUG_STDOUT, "-------------------------------------\n"); 
+			/* cmm channel numbers are 1 + ceetm channel numbers */
+			if (jj < NUM_PQS)
+				cmm_print(DEBUG_STDOUT, "priority que: channel %d classque %d::\n", (ii + 1), jj);
+			else
+				cmm_print(DEBUG_STDOUT, "wbfq: channel %d classque %d::\n", (ii + 1), jj);
+			cmm_print(DEBUG_STDOUT, "fqid %d(%x), frm count %d qdepth %d\n", 
+				cq_query->fqid, cq_query->fqid, cq_query->frm_count, cq_query->qdepth);
+			if (jj < NUM_PQS) {
+				if (cq_query->cq_ch_shaper)
+					cmm_print(DEBUG_STDOUT, "channel queue shaper enabled\n");
+				else
+					cmm_print(DEBUG_STDOUT, "channel queue shaper disabled\n");
+			}
+			if (jj >= NUM_PQS) {
+				cmm_print(DEBUG_STDOUT, "wbfq priority %d, weight %d\n", 
+					cq_query->wbfq_priority, cq_query->weight);
+				if (cq_query->wbfq_chshaper)
+					cmm_print(DEBUG_STDOUT, "channel queue shaper enabled\n");
+				else
+					cmm_print(DEBUG_STDOUT, "channel queue shaper disabled\n");
+			}	
+			/* display cq stats */
+			cmm_print(DEBUG_STDOUT, "\nclassque %d statistics::\n", jj);
+			val = (((uint64_t)cq_query->deque_pkts_high << 32) |
+				(uint64_t)cq_query->deque_pkts_lo);
+			cmm_print(DEBUG_STDOUT, "deque packets\t %lld\n", val);
+			val = (((uint64_t)cq_query->deque_bytes_high << 32) |
+				(uint64_t)cq_query->deque_bytes_lo);
+			cmm_print(DEBUG_STDOUT, "deque bytes\t %lld\n", val);
+			val = (((uint64_t)cq_query->reject_pkts_high << 32) |
+				(uint64_t)cq_query->reject_pkts_lo);
+			cmm_print(DEBUG_STDOUT, "reject packets\t %lld\n", val);
+			val = (((uint64_t)cq_query->reject_bytes_high << 32) |
+				(uint64_t)cq_query->reject_bytes_lo);
+			cmm_print(DEBUG_STDOUT, "reject bytes\t %lld\n", val);
+
+			/* display cq shaper stats */
+			if (cq_query->cq_shaper_on) {
+				cmm_print(DEBUG_STDOUT, "\n\nclass queue %d, shaper enabled - rate in kbps %u\n",
+					jj, cq_query->cir);
+				cmm_print(DEBUG_STDOUT, "Total green pkts : %u\n", cq_query->counterval[GREEN_TOTAL]);
+				cmm_print(DEBUG_STDOUT, "Total yellow pkts: %u\n", cq_query->counterval[YELLOW_TOTAL]);
+				cmm_print(DEBUG_STDOUT, "Total red pkts   : %u\n", cq_query->counterval[RED_TOTAL]);
+				cmm_print(DEBUG_STDOUT, "Total recoloured yellow pkts : %u\n", cq_query->counterval[YELLOW_RECOLORED]);
+				cmm_print(DEBUG_STDOUT, "Total recoloured red pkts    :  %u\n", cq_query->counterval[RED_RECOLORED]);
+			} else {
+				cmm_print(DEBUG_STDOUT, "\nclass queue  %d, shaper disabled\n", jj);
+			}
+		}
+	}
+        return CLI_OK;
+help:
+	{
+		char buf[128];
+
+		print_all_gemac_ports(buf, 128);
+       		cmm_print(DEBUG_STDOUT, "Usage: query qm interface %s\n", buf);
+	}
+#else
 	cmm_print(DEBUG_STDOUT, "Egress Qos support disabled\n");
 	
+#endif
         return CLI_OK;
 }
 
@@ -353,6 +504,36 @@ void cmmQmSetPrintHelp(void)
 
 	print_all_gemac_ports(buf, 128);
 	cmm_print(DEBUG_STDOUT, 
+#ifdef ENABLE_EGRESS_QOS
+		"Usage:\n"
+		"iface name {%s}\n"
+		"\n"
+		"	set qm interface [iface name] reset\n"
+		"	set qm interface [iface name] qos {on | off}\n"
+		"	set qm interface [iface name] shaper\n"
+                "                                       [on | off]\n"
+                "                                       [rate {Kbps}]\n"
+                "                                       [bucketsize]\n"
+		"	set qm channel <1-8> shaper\n"
+                "                                       [on | off]\n"
+                "                                       [rate {Kbps}]\n"
+                "                                       [bucketsize]\n"
+		"	set qm channel <1-8> assign interface [iface name]>\n"
+		"	set qm channel <1-8> wbfq chshaper [on | off]\n"
+		"					[priority {0 - 6}]\n"
+		"	set qm channel <1-8> classque" PQ_RANGE "\n"
+                "                                       [qdepth {depth}]\n"
+                "                                       [chshaper {on | off}]\n"
+		"	set qm channel <1-8> classque" WBFQ_RANGE "\n"
+                "                                       [qdepth {depth}]\n"
+                "                                       [weight {1 - 255}]\n"
+		"	set qm channel <1-8> classque [0-15] cqshaper\n"
+                "                                       [on | off]\n"
+                "                                       [rate {Kbps}]\n"
+		"	set qm dscp-to-fqmap [iface name] enable|disable\n"
+		"	set qm dscp-to-fqmap [iface name] dscp [0-63] channel-id [0-7] classqueue [0-15]\n"
+		"	set qm dscp-to-fqmap [iface name] dscp [0-63] reset\n"
+#endif
 		"	set qm expt_rate {eth} {%d - %d or 0} {%d - %d}\n"
                 "\n"
                 "	set qm ff_rate portname [cir {%d - %d}] [pir {%d - %d}]\n"
@@ -368,6 +549,9 @@ void cmmQmSetPrintHelp(void)
                 "	set qm ingress reset \n"
                 "\n"
 		,
+#ifdef ENABLE_EGRESS_QOS
+	        buf,
+#endif
 		QM_EXPTRATE_MINVAL, QM_EXPTRATE_MAXVAL, QM_EXPTRATE_MIN_BS, QM_EXPTRATE_MAX_BS, 
 		QM_FFRATE_MIN_CIR, QM_FFRATE_MAX_CIR,
 		QM_FFRATE_MIN_PIR, QM_FFRATE_MAX_PIR
@@ -462,6 +646,520 @@ int qm_get_num(char **keywords, int *pcpt, uint32_t max_val, uint32_t *val, char
 	return QM_SUCCESS;
 }
 
+#ifdef ENABLE_EGRESS_QOS
+static int qm_shaper_cfg(char **keywords, int *pcpt, fpp_qm_shaper_cfg_cmd_t *shaperCmd, daemon_handle_t daemon_handle)
+{
+	union u_rxbuf rxbuf;
+	int cpt;
+
+	cpt = *pcpt;
+	/* use interface name is present treat it as port shaper configuration */
+	/* check for other arguments */
+	cpt++;
+	if(!keywords[cpt])
+		return QM_ERROR;
+	while (1) {
+		if (keywords[cpt] == NULL) 
+			break;
+		if(strcasecmp(keywords[cpt], "on") == 0) {
+			if (shaperCmd->enable)
+				return QM_ERROR;
+			shaperCmd->enable = SHAPER_ON;
+			cpt++;
+			continue;		
+		} 
+		if(strcasecmp(keywords[cpt], "off") == 0) {
+			if (shaperCmd->enable)
+				return QM_ERROR;
+			shaperCmd->enable = SHAPER_OFF;
+			cpt++;
+			continue;		
+		}
+		if(strcasecmp(keywords[cpt], "rate") == 0) {
+			/* Get an integer from the string */
+			if (qm_get_num(keywords, &cpt, UINT_MAX, &shaperCmd->rate,
+				"invalid value for shaper rate\n"))
+				return QM_ERROR;
+			shaperCmd->cfg_flags |= (RATE_VALID | SHAPER_CFG_VALID);
+			continue;
+		}	
+		if(strcasecmp(keywords[cpt], "bucketsize") == 0) {
+			/* Get an integer from the string*/
+			if (qm_get_num(keywords, &cpt, UINT_MAX, &shaperCmd->bsize,
+				"invalid value for bucket size\n"))
+				return QM_ERROR;
+			shaperCmd->cfg_flags |= (BSIZE_VALID | SHAPER_CFG_VALID);
+			continue;
+		}
+		*pcpt = cpt;
+		return QM_INVALID_KEYWORD;
+	}
+	/* check if all parameters have been provided for shaping if enabled */
+	if (shaperCmd->cfg_flags & SHAPER_CFG_VALID) {
+		if((shaperCmd->cfg_flags & 
+			(RATE_VALID | BSIZE_VALID)) !=
+			(RATE_VALID | BSIZE_VALID)) {
+			cmm_print(DEBUG_CRIT, "shaper ERROR: missing parameters for shaper\n");
+			return QM_ERROR;
+		}
+	}
+	if(cmmSendToDaemon(daemon_handle, FPP_CMD_QM_SHAPER_CFG, shaperCmd, sizeof(fpp_qm_shaper_cfg_cmd_t), 
+		&rxbuf.rcvBuffer) == 2)
+	{
+		if (rxbuf.result != 0)
+			showErrorMsg("CMD_QM_SHAPER_CFG", ERRMSG_SOURCE_FPP, rxbuf.rcvBuffer);
+	}
+	*pcpt = cpt;
+	return QM_SUCCESS;
+}
+
+static int qm_port_shaper_cfg(char **keywords, int *cpt, char *ifname, daemon_handle_t daemon_handle)
+{
+	fpp_qm_shaper_cfg_cmd_t shaperCmd;
+
+	memset(&shaperCmd, 0, sizeof(shaperCmd));
+	STR_TRUNC_COPY(shaperCmd.interface, ifname, sizeof(shaperCmd.interface));
+	shaperCmd.cfg_flags = PORT_SHAPER_CFG;
+	return(qm_shaper_cfg(keywords, cpt, &shaperCmd, daemon_handle));
+	
+}
+
+static int qm_channel_shaper_cfg(char **keywords, int *cpt, uint32_t channel_num, daemon_handle_t daemon_handle) 
+{
+	fpp_qm_shaper_cfg_cmd_t shaperCmd;
+
+	memset(&shaperCmd, 0, sizeof(shaperCmd));
+	shaperCmd.channel_num = channel_num;
+	shaperCmd.cfg_flags = CHANNEL_SHAPER_CFG;
+	return(qm_shaper_cfg(keywords, cpt, &shaperCmd, daemon_handle));
+}
+
+
+static int qm_wbfq_cfg(char **keywords, int *pcpt, uint32_t channel, daemon_handle_t daemon_handle)
+{
+	fpp_qm_wbfq_cfg_cmd_t wbfqCmd;
+	union u_rxbuf rxbuf;
+	char *kw;
+
+	memset(&wbfqCmd, 0, sizeof(fpp_qm_wbfq_cfg_cmd_t));
+
+	*pcpt += 1;
+	if (!keywords[*pcpt])
+		return QM_ERROR; 
+
+	if(strcasecmp(keywords[*pcpt], "chshaper") != 0) {
+		return QM_INVALID_KEYWORD;
+	}
+	*pcpt += 1;
+	kw = keywords[*pcpt];
+	if(!kw)
+		return QM_ERROR;
+	if(strcasecmp(kw, "on") == 0) {
+		wbfqCmd.wbfq_chshaper = 1;
+	} else {
+		if(strcasecmp(kw, "off") == 0)
+			wbfqCmd.wbfq_chshaper = 0;
+		else
+			return QM_INVALID_KEYWORD;
+	}
+	 wbfqCmd.cfg_flags |= WBFQ_SHAPER_VALID;
+	*pcpt += 1;
+
+	kw = keywords[*pcpt];
+
+	if(kw && strcasecmp(kw, "priority") == 0) {
+		/* Get an integer from the string*/
+		if (qm_get_num(keywords, pcpt, (MAX_PQS - 2), &wbfqCmd.priority,
+			"invalid value for wbfq priority\n"))
+			return QM_ERROR;
+		wbfqCmd.cfg_flags |= WBFQ_PRIORITY_VALID;
+	}
+	wbfqCmd.channel_num = channel;
+	/* Send the command to CDX */
+	if(cmmSendToDaemon(daemon_handle, FPP_CMD_QM_WBFQ_CFG, &wbfqCmd, sizeof(wbfqCmd), 
+		&rxbuf.rcvBuffer) == 2)
+	{
+		if (rxbuf.result != 0) {
+			showErrorMsg("FPP_CMD_QM_WBFQ_CFG", ERRMSG_SOURCE_FPP, rxbuf.rcvBuffer);
+		}
+	}		
+	return QM_SUCCESS;
+}
+
+static int qm_classque_cfg(char **keywords, int *pcpt, uint32_t channel, daemon_handle_t daemon_handle)
+{
+	fpp_qm_cq_cfg_cmd_t CqCmd;
+	union u_rxbuf rxbuf;	
+	char *kw;
+
+	memset(&CqCmd, 0, sizeof(fpp_qm_cq_cfg_cmd_t));
+	CqCmd.channel_num = channel;
+	/* Get que number from the string */
+	if (qm_get_num(keywords, pcpt, 15, &CqCmd.quenum,
+		"invalid value for que number\n"))
+		return QM_ERROR;
+	while (keywords[*pcpt] != NULL) {
+		kw = keywords[*pcpt];
+
+		if(strcasecmp(kw, "cqshaper") == 0) {
+			*pcpt += 1;
+			kw = keywords[*pcpt];
+			if(!kw)
+				return QM_ERROR;
+			if(strcasecmp(kw, "on") == 0) {
+				CqCmd.cq_shaper_on = 1;
+			} else {
+				if(strcasecmp(kw, "off") == 0)
+					CqCmd.cq_shaper_on = 0;
+				else
+					return QM_INVALID_KEYWORD;
+			}
+			CqCmd.cfg_flags |= (CQ_SHAPER_CFG_VALID);
+			*pcpt += 1;
+			kw = keywords[*pcpt];
+			if(!kw)
+				return QM_ERROR;
+
+			if(strcasecmp(kw, "rate") == 0) {
+				/* Get an integer from the string */
+				if (qm_get_num(keywords, pcpt, UINT_MAX, &CqCmd.shaper_rate,
+					"invalid value for shaper rate\n"))
+					return QM_ERROR;
+				CqCmd.cfg_flags |= (CQ_RATE_VALID | CQ_SHAPER_CFG_VALID);
+			}
+			/* if no parameters are set abort */
+			if (!(CqCmd.cfg_flags & (CQ_SHAPER_CFG_VALID | CQ_RATE_VALID |
+				CQ_CMINFO_VALID)))
+				return QM_ERROR;
+
+		}
+		else {
+			if (CqCmd.quenum >= NUM_PRIO_QUEUES) {
+				if(strcasecmp(kw, "weight") == 0) {
+					/* Get weight from the string */
+					if (qm_get_num(keywords, pcpt, UINT_MAX, &CqCmd.weight,
+						"invalid value for que weight\n"))
+						return QM_ERROR;
+					CqCmd.cfg_flags |= (CQ_WEIGHT_VALID);
+					continue;
+				}
+			}
+			if(strcasecmp(kw, "chshaper") == 0) {
+				*pcpt += 1;
+				kw = keywords[*pcpt];
+				if(!kw)
+					return QM_ERROR;
+				if(strcasecmp(kw, "on") == 0) {
+					CqCmd.ch_shaper_en = 1;
+				} else {
+					if(strcasecmp(kw, "off") == 0)
+						CqCmd.ch_shaper_en = 0;
+					else
+						return QM_INVALID_KEYWORD;
+				}
+				CqCmd.cfg_flags |= (CQ_SHAPER_CFG_VALID);
+				*pcpt += 1;
+				continue;
+			}
+			if(strcasecmp(kw, "qdepth") == 0) {
+				/* Get td threshold from the string */
+				if (qm_get_num(keywords, pcpt, UINT_MAX, &CqCmd.tdthresh,
+					"invalid value for que depth\n"))
+					return QM_ERROR;
+				CqCmd.cfg_flags |= (CQ_TDINFO_VALID);
+				continue;
+			}
+			return QM_INVALID_KEYWORD;
+		}
+	}
+
+	/* if no parameters are set abort */
+	if (!(CqCmd.cfg_flags & (CQ_WEIGHT_VALID | CQ_SHAPER_CFG_VALID | CQ_TDINFO_VALID |
+					CQ_CMINFO_VALID)))
+		return QM_ERROR;
+
+	/* Send the command to CDX */
+	if(cmmSendToDaemon(daemon_handle, FPP_CMD_QM_CQ_CFG, &CqCmd, sizeof(CqCmd),
+		&rxbuf.rcvBuffer) == 2)
+	{
+		if (rxbuf.result != 0)
+			showErrorMsg("FPP_CMD_QM_CQ_CFG", ERRMSG_SOURCE_FPP, rxbuf.rcvBuffer);
+	}
+	return QM_SUCCESS;
+}
+
+static int qm_channel_assign(char **keywords, int cpt, uint32_t channel, daemon_handle_t daemon_handle)
+{
+	int port_id;
+	fpp_qm_chnl_assign_cmd_t assignCmd;
+	union u_rxbuf rxbuf;
+	char *ifname;
+
+	if(!keywords[++cpt])
+		return QM_ERROR;
+	/* get interface name */
+	if(strcasecmp(keywords[cpt], "interface") != 0)
+		return QM_INVALID_KEYWORD;
+	cpt++;
+	if ((port_id = get_port_id(keywords[cpt])) >= 0)
+		ifname = keywords[cpt];
+	else {
+		cmm_print(DEBUG_CRIT, "ERROR: invalid port name %s\n", keywords[cpt]);
+		return QM_ERROR;
+	}
+	memset(&assignCmd, 0, sizeof(fpp_qm_chnl_assign_cmd_t));
+	STR_TRUNC_COPY(assignCmd.interface, ifname, sizeof(assignCmd.interface));
+	assignCmd.channel_num = channel;
+	/* Send CMD_QM_EXPT_RATE command */
+	if(cmmSendToDaemon(daemon_handle, FPP_CMD_QM_CHNL_ASSIGN, &assignCmd, 
+		sizeof(fpp_qm_chnl_assign_cmd_t), &rxbuf.rcvBuffer) == 2)
+	{
+		if (rxbuf.result != 0)
+			showErrorMsg("FPP_CMD_QM_CHNL_ASSIGN", ERRMSG_SOURCE_FPP, rxbuf.rcvBuffer);
+	}
+	return QM_SUCCESS;
+}
+
+static int qm_channel_cfg(char **keywords, int *pcpt, daemon_handle_t daemon_handle)
+{
+	uint32_t chnl_num;
+	char *kw;
+
+	/* get channel number */
+	if (qm_get_num(keywords, pcpt, FPP_NUM_SHAPERS, &chnl_num, 
+		"invalid value for channel number\n"))
+		return QM_ERROR;
+	if (!chnl_num) {
+		cmm_print(DEBUG_CRIT, "invalid value for channel number\n");
+		return QM_ERROR;
+	}
+		
+	kw = keywords[*pcpt];
+	if (!kw)
+		return QM_ERROR;
+	/* channel number internally is from 0 thru 7 */
+	chnl_num--;
+	
+	/* handle channel shaper configuration */
+	if(strcasecmp(kw, "shaper") == 0) {
+		return(qm_channel_shaper_cfg(keywords, pcpt, chnl_num, daemon_handle));
+	}
+	/* handle wbfq configuration within channel */
+	if(strcasecmp(kw, "wbfq") == 0) {
+		return(qm_wbfq_cfg(keywords, pcpt, chnl_num, daemon_handle));
+	}
+	/* handle classque configuration within channel */
+	if(strcasecmp(kw, "classque") == 0) {
+		return(qm_classque_cfg(keywords, pcpt, chnl_num, daemon_handle));
+	}
+	/* handle channel to port assignment */
+	if(strcasecmp(kw, "assign") == 0) {
+		return(qm_channel_assign(keywords, *pcpt, chnl_num, daemon_handle));
+	}
+	return QM_INVALID_KEYWORD;
+}
+
+/*
+ * This function does the following actions.
+ *  1. Enable/Disable DSCP to FQ map on an interface.
+ *  2. Maps specific DSCP value with channel and classqueue.
+ *  3. Reset the specific DSCP value mapping.
+ * It returns QM_SUCCESS after successful configuration,
+ * otherwise returns QM_ERROR.
+*/
+static int qm_dscp_fqmap_cfg(char **keywords, int *pcpt, daemon_handle_t daemon_handle)
+{
+	fpp_qm_dscp_chnl_clsq_map_t dscp_fq_map_cmd;
+	union u_rxbuf rxbuf;
+	int cpt;
+	int cmd = 0;
+	uint32_t val;
+	//char *ifname;
+
+	cpt = *pcpt;
+	if(!keywords[++cpt]) {
+		cmm_print(DEBUG_CRIT, "ERROR: interface name(%s) is invalid\n", keywords[cpt]);
+		return QM_ERROR;
+	}
+
+	memset(&dscp_fq_map_cmd, 0, sizeof(dscp_fq_map_cmd));
+	if (get_port_id(keywords[cpt]) >= 0)
+	{
+		STR_TRUNC_COPY(dscp_fq_map_cmd.interface, keywords[cpt], sizeof(dscp_fq_map_cmd.interface));
+	}
+	else {
+		cmm_print(DEBUG_CRIT, "ERROR: invalid interface name(%s)\n", keywords[cpt]);
+		return QM_ERROR;
+	}
+
+	/* handle dscp or enable/disable */
+	if(!keywords[++cpt]) {
+		cmm_print(DEBUG_CRIT, "ERROR: invalid command, expecting dscp, channel id and class queue configuration or enable/disable\n");
+		return QM_ERROR;
+	}
+	if(strcasecmp(keywords[cpt], "enable") == 0) {
+		dscp_fq_map_cmd.status = 1;
+		cmd = FPP_CMD_QM_DSCP_FQ_MAP_STATUS;
+		goto send_cmd;
+	}
+	else if(strcasecmp(keywords[cpt], "disable") == 0) {
+		dscp_fq_map_cmd.status = 0;
+		cmd = FPP_CMD_QM_DSCP_FQ_MAP_STATUS;
+		goto send_cmd;
+	}
+	else if(strcasecmp(keywords[cpt], "dscp") == 0) {
+		/* Get dscp number from the string */
+		if (qm_get_num(keywords, &cpt, FPP_NUM_DSCP-1, &val,
+					"invalid dscp value\n"))
+			return QM_ERROR;
+		dscp_fq_map_cmd.dscp = (uint8_t)val;
+	}
+	else {
+		cmm_print(DEBUG_CRIT, "ERROR: invalid command, expecting dscp configuration\n");
+		return QM_ERROR;
+	}
+
+	/* handle channel id */
+	if(!keywords[cpt]) {
+		cmm_print(DEBUG_CRIT, "ERROR: invalid command, expecting channel id and class queue configuration\n");
+		return QM_ERROR;
+	}
+	if(strcasecmp(keywords[cpt], "reset") == 0) {
+		cmd = FPP_CMD_QM_DSCP_FQ_MAP_RESET;
+		goto send_cmd;
+	}
+	else if(strcasecmp(keywords[cpt], "channel-id") == 0) {
+		/* Get channel id number from the string */
+		if (qm_get_num(keywords, &cpt, MAX_CHANNELS-1, &val,
+					"invalid channel id value\n"))
+			return QM_ERROR;
+		dscp_fq_map_cmd.channel_num = (uint8_t)val;
+		cmd = FPP_CMD_QM_DSCP_FQ_MAP_CFG;
+	}
+	else {
+		cmm_print(DEBUG_CRIT, "ERROR: invalid command, expecting channel id configuration or dscp reset\n");
+		return QM_ERROR;
+	}
+
+	/* handle class queue */
+	if(!keywords[cpt]) {
+		cmm_print(DEBUG_CRIT, "ERROR: invalid command, expecting class queue configuration\n");
+		return QM_ERROR;
+	}
+	if(strcasecmp(keywords[cpt], "classqueue") == 0) {
+		/* Get class queue number from the string */
+		if (qm_get_num(keywords, &cpt, MAX_QUEUES-1, &val,
+					"invalid class queue value\n"))
+			return QM_ERROR;
+		dscp_fq_map_cmd.queue_num = (uint8_t)val;
+	}
+	else {
+		cmm_print(DEBUG_CRIT, "ERROR: invalid command, expecting class queue configuration\n");
+		return QM_ERROR;
+	}
+
+send_cmd:
+	/* Send the command to CDX */
+	if(cmmSendToDaemon(daemon_handle, cmd, &dscp_fq_map_cmd, sizeof(dscp_fq_map_cmd),
+		&rxbuf.rcvBuffer) == 2)
+	{
+		if (rxbuf.result != 0)
+		{
+			if (cmd == FPP_CMD_QM_DSCP_FQ_MAP_STATUS)
+				showErrorMsg("FPP_CMD_QM_DSCP_FQ_MAP_STATUS", ERRMSG_SOURCE_FPP, rxbuf.rcvBuffer);
+			else if (cmd == FPP_CMD_QM_DSCP_FQ_MAP_CFG)
+				showErrorMsg("FPP_CMD_QM_DSCP_FQ_MAP_CFG", ERRMSG_SOURCE_FPP, rxbuf.rcvBuffer);
+			else if (cmd == FPP_CMD_QM_DSCP_FQ_MAP_RESET)
+				showErrorMsg("FPP_CMD_QM_DSCP_FQ_MAP_RESET", ERRMSG_SOURCE_FPP, rxbuf.rcvBuffer);
+			else
+				showErrorMsg("Invalid cmd", ERRMSG_SOURCE_FPP, rxbuf.rcvBuffer);
+		}
+	}
+	return QM_SUCCESS;
+}
+
+static int qm_interface_cfg(char **keywords, int *pcpt, daemon_handle_t daemon_handle)
+{
+	int port_id;
+	char *ifname;
+	union u_rxbuf rxbuf;
+	int cpt;
+
+	cpt = *pcpt;
+	if(!keywords[++cpt])
+		return QM_ERROR;
+
+	if ((port_id = get_port_id(keywords[cpt])) >= 0)
+		ifname = keywords[cpt];
+	else {
+		cmm_print(DEBUG_CRIT, "ERROR: invalid port name %s\n", keywords[cpt]);
+		return QM_ERROR;
+	}
+
+	if(!keywords[++cpt])
+		return QM_ERROR;
+	if(strcasecmp(keywords[cpt], "reset") == 0)
+	{
+		fpp_qm_reset_cmd_t resetCmd;
+
+		/* handle qos configuration reset */
+		memset(&resetCmd, 0, sizeof(fpp_qm_reset_cmd_t));
+		STR_TRUNC_COPY(resetCmd.interface, ifname, sizeof(resetCmd.interface));
+		/* Send CMD_QM_RESET command */
+		if(cmmSendToDaemon(daemon_handle, FPP_CMD_QM_RESET, &resetCmd, sizeof(fpp_qm_reset_cmd_t), 
+			&rxbuf.rcvBuffer) == 2) {
+			if (rxbuf.result != 0)
+				showErrorMsg("CMD_QM_RESET", ERRMSG_SOURCE_FPP, rxbuf.rcvBuffer);
+		}	
+		return QM_SUCCESS;
+	}
+	if(strcasecmp(keywords[cpt], "qos") == 0)
+	{		
+		fpp_qm_qos_enable_cmd_t enableCmd;
+		/* handle Qos enable or disable on port */	
+		if(!keywords[++cpt])
+			return QM_ERROR;
+		memset(&enableCmd, 0, sizeof(enableCmd));
+		STR_TRUNC_COPY(enableCmd.interface, ifname, sizeof(enableCmd.interface));
+		if(strcasecmp(keywords[cpt], "on") == 0) {
+			enableCmd.enable = 1;
+		} else {
+			if(strcasecmp(keywords[cpt], "off") == 0)  {
+				cmm_print(DEBUG_CRIT, "qos off feature not supported in this version\n");
+				return QM_ERROR;
+			}
+			else 
+				return QM_INVALID_KEYWORD;
+		}
+		/* Send CMD_QM_QOSENABLE command */
+		if(cmmSendToDaemon(daemon_handle, FPP_CMD_QM_QOSENABLE, &enableCmd, 
+			sizeof(fpp_qm_qos_enable_cmd_t), 
+			&rxbuf.rcvBuffer) == 2) {
+			switch (rxbuf.result) {
+				case QOS_ENERR_NOT_CONFIGURED:
+					cmm_print(DEBUG_STDOUT, "no channels assigned\n");
+					break;
+				case QOS_ENERR_IO:
+					cmm_print(DEBUG_STDOUT, "IO error\n");
+					break;
+				case QOS_ENERR_INVAL_PARAM:
+					cmm_print(DEBUG_STDOUT, "Invalid parameters\n");
+					break;
+				default:
+					 break;
+			}
+		}	
+		return QM_SUCCESS;
+	}
+	if(strcasecmp(keywords[cpt], "shaper") == 0)
+	{
+		/* handle port shaper configuration */
+		return(qm_port_shaper_cfg(keywords, &cpt, ifname, daemon_handle));
+	}
+	*pcpt = cpt;
+	return QM_INVALID_KEYWORD;
+}
+#endif /* ENABLE_EGRESS_QOS */
 
 static int qm_exptrate_cfg(char **keywords, int cpt, daemon_handle_t daemon_handle)
 {
@@ -896,6 +1594,26 @@ int cmmQmSetProcess(char **keywords, int tabStart, daemon_handle_t daemon_handle
 #endif /* endif for SEC_PROFILE_SUPPORT */
 #endif
 
+#ifdef ENABLE_EGRESS_QOS
+		/* handle interface configuration */
+		if(strcasecmp(keywords[cpt], "interface") == 0)
+		{
+			retval = qm_interface_cfg(keywords, &cpt, daemon_handle);
+			break;
+		}
+		/* handle channel configuration */
+		if(strcasecmp(keywords[cpt], "channel") == 0)
+		{
+			retval = qm_channel_cfg(keywords, &cpt, daemon_handle);
+			break;
+		}
+		/* handle DSCP to Q mapping configuration */
+		if(strcasecmp(keywords[cpt], "dscp-to-fqmap") == 0)
+		{
+			retval = qm_dscp_fqmap_cfg(keywords, &cpt, daemon_handle);
+			break;
+		}
+#endif
 		break;
 	} 
 err_ret:

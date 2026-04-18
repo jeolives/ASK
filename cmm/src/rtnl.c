@@ -209,21 +209,6 @@ int cmm_rtnl_listen(struct rtnl_handle *rth, rtnl_filter_t handler, void *jarg)
 			if (errno == EAGAIN)
 				goto err;
 
-			if (errno == ENOBUFS) {
-				/* Kernel queue overflowed — we've missed
-				 * netlink events and our fast-path state is
-				 * now out of sync with the kernel. Log loudly
-				 * and keep draining; the upper layer must
-				 * periodically resync (dump routes/neigh/ct)
-				 * to recover. Tearing down the socket on
-				 * ENOBUFS would make recovery harder, not
-				 * easier. */
-				cmm_print(DEBUG_ERROR,
-					"%s::%d: netlink ENOBUFS — events dropped, state may be stale\n",
-					__func__, __LINE__);
-				continue;
-			}
-
 			cmm_print(DEBUG_ERROR, "%s::%d: recvmsg() %s\n", __func__, __LINE__, strerror(errno));
 
 			goto err;

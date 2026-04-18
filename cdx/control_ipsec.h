@@ -121,7 +121,7 @@ typedef struct _tCommandIPSecSetNatt {
 
 typedef struct _tCommandIPSecSetState {
 	unsigned short sagd;
-	unsigned short rsvd;
+	unsigned short parent_sa_sagd;
 	unsigned short state;
 	unsigned short rsvd2;
 }CommandIPSecSetState, *PCommandIPSecSetState;

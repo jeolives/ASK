@@ -1,0 +1,63 @@
+From: Jose Olivera <oliverajeo@gmail.com>
+Subject: [PATCH] sdk_dpaa: add dpa_unregister_ipsec_fq_handler
+
+Companion to the existing dpa_register_ipsec_fq_handler(). The
+registration function, as added by the main ASK kernel patch, guards
+against re-registration:
+
+    if (cdx_get_ipsec_fq_hookfn) {
+        printk("%s::hook already registered\n", __FUNCTION__);
+        return -1;
+    }
+    cdx_get_ipsec_fq_hookfn = hookfn;
+
+There is no symmetric clear path: passing NULL to the register function
+is rejected by the same guard once a hook is already installed, and the
+cdx_get_ipsec_fq_hookfn global is not exported, so ASK's cdx module
+cannot null it out on module unload.
+
+The practical consequence is that unloading cdx leaves sdk_dpaa holding
+a function pointer into freed module memory. The next outbound IPsec
+packet dereferences that pointer in the NULL-guarded
+    if ((cdx_get_ipsec_fq_hookfn) && (sp) && (sp->len))
+path of dpaa_eth_sg.c — use-after-free, likely an oops. A subsequent
+modprobe of cdx is also blocked because the register function still
+sees the stale non-NULL pointer and returns -1.
+
+This patch adds an explicit deregister function that sets the hook back
+to NULL and exports it. ASK's cdx/control_ipsec.c:ipsec_exit() calls
+this in its normal cleanup path to make module unload/reload safe.
+
+For the OpenWRT layerscape target, install this as
+target/linux/layerscape/patches-6.12/960-nxp-ask-ipsec-fq-handler-unregister.patch
+(or merge the two hunks into 951-nxp-ask.patch). This patch applies on
+top of 951-nxp-ask.patch (which must already have introduced
+dpa_register_ipsec_fq_handler and cdx_get_ipsec_fq_hookfn).
+
+Signed-off-by: Jose Olivera <oliverajeo@gmail.com>
+---
+--- a/drivers/net/ethernet/freescale/sdk_dpaa/dpaa_eth_common.h
++++ b/drivers/net/ethernet/freescale/sdk_dpaa/dpaa_eth_common.h
+@@ -100,6 +100,7 @@
+ #if defined(CONFIG_INET_IPSEC_OFFLOAD) || defined(CONFIG_INET6_IPSEC_OFFLOAD)
+ typedef struct qman_fq *(*cdx_get_ipsec_fq_hook_t)(u32 handle);
+ int dpa_register_ipsec_fq_handler(cdx_get_ipsec_fq_hook_t hookfn);
++void dpa_unregister_ipsec_fq_handler(void);
+ int dpaa_submit_inb_pkt_to_SEC(struct sk_buff *skb, uint16_t sagd);
+  __hot void dpaa_submit_outb_pkt_to_SEC(struct sk_buff *skb, struct net_device *net_dev, struct dpa_bp *dpa_bp);
+
+--- a/drivers/net/ethernet/freescale/sdk_dpaa/dpaa_eth_sg.c
++++ b/drivers/net/ethernet/freescale/sdk_dpaa/dpaa_eth_sg.c
+@@ -101,6 +101,12 @@
+
+ EXPORT_SYMBOL(dpa_register_ipsec_fq_handler);
+
++void dpa_unregister_ipsec_fq_handler(void)
++{
++	cdx_get_ipsec_fq_hookfn = NULL;
++}
++EXPORT_SYMBOL(dpa_unregister_ipsec_fq_handler);
++
+ #endif
+
+ /* DMA map and add a page frag back into the bpool.

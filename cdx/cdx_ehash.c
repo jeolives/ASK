@@ -3141,6 +3141,19 @@ void cdx_deinit_frag_module(void)
 	t_Handle h_FmMuram;
 	uint64_t physicalMuramBase;
 	uint32_t MuramSize;
+
+	/* Remove the procfs entries created in cdx_init_frag_procfs.
+	 * proc_remove tears down the directory and all its children in one
+	 * call, so the two files plus the parent directory come out
+	 * together. Without this, rmmod leaves the /proc/ucode_frag tree
+	 * in place and the next modprobe's proc_create fails with -EEXIST. */
+	if (frag_proc_dir) {
+		proc_remove(frag_proc_dir);
+		frag_proc_dir = NULL;
+		stats_file = NULL;
+		alloc_free_test_file = NULL;
+	}
+
 #ifdef CDX_FRAG_USE_BUFF_POOL
 	cdx_deinit_fragment_bufpool();
 #endif //CDX_FRAG_USE_BUFF_POOL

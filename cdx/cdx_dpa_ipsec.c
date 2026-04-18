@@ -154,7 +154,9 @@ void cdx_ipsec_print_desc ( U32 *desc,const char* function, int line)
 
 int cdx_ipsec_init(void)
 {
+#ifdef CDX_DPA_DEBUG
 	printk(KERN_INFO "%s\n", __func__);
+#endif
 	ipsec_instance = dpa_get_ipsec_instance();
 	sec_era = 4 ;
 	post_sec_out_data_off = ((uint64_t )POST_SEC_OUT_DATA_OFFSET /64);
@@ -165,7 +167,7 @@ int cdx_ipsec_init(void)
 		log_err("Failed to get the job ring device, check the dts\n");
 		return -EINVAL;
 	}
-	printk(KERN_INFO "%s job ring device= %p\n", __func__,jrdev_g);
+	printk(KERN_INFO "cdx: ipsec jr=%pK\n", jrdev_g);
 	return 0;
 }
 

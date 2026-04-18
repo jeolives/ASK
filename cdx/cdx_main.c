@@ -103,7 +103,9 @@ static int start_dpa_app(void)
 	argv[0] = modprobe_path;
 	argv[1] = NULL;
 	retval = 0;
-	printk("%s::calling dpa_app argv %p\n", __func__, argv);
+#ifdef CDX_DPA_DEBUG
+	printk("%s::calling dpa_app argv %pK\n", __func__, argv);
+#endif
 	info = call_usermodehelper_setup(modprobe_path, argv, envp, GFP_KERNEL,
 			NULL, cdx_free_modprobe_argv, NULL);
 	if (info) {
@@ -200,7 +202,9 @@ static int __init cdx_module_init(void)
 	int rc = 0;
 	int ii;
 
+#ifdef CDX_DPA_DEBUG
 	printk(KERN_INFO "%s\n", __func__);
+#endif
 
 	rc = cdx_check_fman_firmware();
 	if (rc)

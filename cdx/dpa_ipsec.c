@@ -54,7 +54,7 @@
 
 #define DPAIPSEC_ERROR(fmt, ...)\
 {\
-        printk(KERN_CRIT fmt, ## __VA_ARGS__);\
+        printk_ratelimited(KERN_CRIT fmt, ## __VA_ARGS__);\
 }
 #ifdef CDX_DPA_DEBUG
 #define DPAIPSEC_INFO(fmt, ...)\

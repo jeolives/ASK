@@ -241,17 +241,11 @@ static int __init cdx_module_init(void)
 #ifdef START_DPA_APP
 	rc = start_dpa_app();
 	if (rc != 0) {
-		/* Non-fatal: dpa_app can be launched manually later to finish
-		 * PCD programming. Failing the module load here would leave the
-		 * control device (/dev/cdx_ctrl) unreachable, preventing
-		 * recovery from a transient dpa_app failure (e.g. rootfs not
-		 * mounted yet when modprobe runs). */
-		printk("%s::start_dpa_app failed rc %d (continuing, run dpa_app manually)\n",
-		       __func__, rc);
-		rc = 0;
-	} else {
-		printk("%s::start_dpa_app successful\n", __func__);
+		printk("%s::start_dpa_app failed rc %d\n", __func__, rc);
+		rc = -EIO;
+		goto exit;
 	}
+	printk("%s::start_dpa_app successful\n", __func__);
 #endif
 #ifdef CFG_WIFI_OFFLOAD
 	rc = dpaa_vwd_init();
@@ -262,12 +256,9 @@ static int __init cdx_module_init(void)
 #endif
 	// initialize global fragmentation params
 	if (cdx_init_frag_module()) {
-		/* Non-fatal: the frag module depends on port registrations that
-		 * only happen once dpa_app has programmed the FMAN. If start_dpa_app
-		 * above was skipped (non-fatal failure) we would also fail here,
-		 * but the cdx module is still useful for the other pieces that did
-		 * initialize. */
-		printk("%s::cdx_init_frag_module failed (continuing)\n", __func__);
+		printk("%s::cdx_init_frag_module failed\n", __func__);
+		rc = -EIO;
+		goto exit;
 	}
 
 #ifdef DPA_IPSEC_OFFLOAD

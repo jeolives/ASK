@@ -375,7 +375,29 @@ static int ipr_timer(void *data)
 
 static void cdx_deinit_ip_reassembly(void)
 {
-	printk("%s::implement this\n", __func__);
+	/* Clear the kernel-side bpool replenish hook BEFORE stopping the
+	 * timer or tearing down bpools, so sdk_dpaa's _dpa_rx path can't
+	 * call into our code after it's been freed. The call-site in
+	 * sdk_dpaa/dpaa_eth_sg.c is already NULL-guarded, so passing NULL
+	 * safely disarms the hook. */
+	register_dpaa_eth_bpool_replenish_hook(NULL);
+
+	/* Stop the reassembly timer thread. kthread_stop waits for it
+	 * to exit, so after this returns the thread is not touching any
+	 * ipr state. */
+	if (ipr_timer_thread && !IS_ERR(ipr_timer_thread)) {
+		kthread_stop(ipr_timer_thread);
+		ipr_timer_thread = NULL;
+	}
+
+	/* TODO: release reassly_bp, ipr_frag_bp, and the IPR FQ set.
+	 * The bpool teardown path in sdk_dpaa doesn't expose a clean
+	 * symmetric free for bpools created via create_ipr_bpool — they
+	 * stay allocated until kernel free. On module-unload-and-reload,
+	 * the next cdx_init_ip_reassembly will reuse via
+	 * get_phys_port_poolinfo_bysize rather than hitting an EEXIST, so
+	 * this is a memory-footprint leak rather than a reload breakage.
+	 * The critical safety steps (hook clear + kthread stop) are done. */
 	return;
 }
 

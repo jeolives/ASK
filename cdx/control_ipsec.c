@@ -1252,5 +1252,13 @@ BOOL ipsec_init(void)
 void ipsec_exit(void)
 {
 	cdx_timer_del(&sa_timer);
+#if defined(CONFIG_INET_IPSEC_OFFLOAD) || defined(CONFIG_INET6_IPSEC_OFFLOAD)
+	/* Clear the kernel-side IPsec FQ hook so sdk_dpaa's outbound
+	 * path doesn't dereference our freed cdx_get_to_sec_fq_handler
+	 * after module unload. Requires patches/kernel/003-ipsec-fq-
+	 * handler-unregister.patch to be applied to the kernel build
+	 * (exposes dpa_unregister_ipsec_fq_handler). */
+	dpa_unregister_ipsec_fq_handler();
+#endif
 }
 #endif  // DPA_IPSEC_OFFLOAD

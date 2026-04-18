@@ -13,8 +13,17 @@ Adds support for:
 These extensions enable CMM daemon integration with ASK hardware offloading
 on NXP Layerscape processors.
 
-Note: CTA attribute ordering matches kernel 6.12 nfnetlink_conntrack.h:
-  CTA_LAYERSCAPE_FP_ORIG, CTA_LAYERSCAPE_FP_REPLY, CTA_QOSCONNMARK, CTA_QOSCONNMARK_PAD
+Note: CTA attribute ordering must match kernel 6.12 nfnetlink_conntrack.h
+(see target/linux/layerscape/patches-6.12/951-nxp-ask.patch):
+  CTA_QOSCONNMARK, CTA_QOSCONNMARK_PAD, CTA_LAYERSCAPE_FP_ORIG, CTA_LAYERSCAPE_FP_REPLY
+
+CTA_QOSCONNMARK_PAD follows upstream convention (cf. CTA_TIMESTAMP_START /
+CTA_TIMESTAMP_PAD): the _PAD sibling is the attribute type netlink emits
+as zero-length padding before a 64-bit value on alignment-sensitive
+architectures. An earlier revision of this patch had the attributes in
+the wrong order, causing libnetfilter-conntrack to misinterpret every
+Layerscape fast-path event as CTA_QOSCONNMARK and trip abi_breakage()
+in parse_mnl.c:1031 ("Result not representable" / ERANGE from U64 validate).
 
 Upstream-Status: Inappropriate [NXP vendor extension]
 Signed-off-by: Tomaz Zaman <tomaz@mono.si>
@@ -150,10 +159,10 @@ index b8ffe02..418870a 100644
  	CTA_FILTER,
  	CTA_STATUS_MASK,
 +	/* NXP ASK: Layerscape fast path attributes - order must match kernel! */
-+	CTA_LAYERSCAPE_FP_ORIG,
-+	CTA_LAYERSCAPE_FP_REPLY,
 +	CTA_QOSCONNMARK,
 +	CTA_QOSCONNMARK_PAD,
++	CTA_LAYERSCAPE_FP_ORIG,
++	CTA_LAYERSCAPE_FP_REPLY,
  	__CTA_MAX
  };
  #define CTA_MAX (__CTA_MAX - 1)

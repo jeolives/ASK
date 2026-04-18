@@ -755,7 +755,7 @@ int cmmRxQueryProcess(char ** keywords, int tabStart, daemon_handle_t daemon_han
 			if (pEntryResponse->eof)
 			    	break;
 			if (pEntryResponse->input_interface >= GEM_PORTS) {
-				strscpy(input_interface, pEntryResponse->input_name, IFNAMSIZ);
+				STR_TRUNC_COPY(input_interface, pEntryResponse->input_name, IFNAMSIZ);
 			} else {
 				get_port_name(pEntryResponse->input_interface, input_interface, IFNAMSIZ);
 			}
@@ -771,7 +771,7 @@ int cmmRxQueryProcess(char ** keywords, int tabStart, daemon_handle_t daemon_han
 			}
 
 			if (pEntryResponse->output_interface >= GEM_PORTS) {
-				strscpy(output_interface, pEntryResponse->output_name, IFNAMSIZ);
+				STR_TRUNC_COPY(output_interface, pEntryResponse->output_name, IFNAMSIZ);
 			} else {
 				get_port_name(pEntryResponse->output_interface, output_interface, IFNAMSIZ);
 			}

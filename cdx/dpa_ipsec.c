@@ -248,18 +248,30 @@ static enum qman_cb_dqrr_result ipsec_exception_pkt_handler(struct qman_portal *
 	 * SEC-reported error check.
 	 *
 	 * Frames arriving on the IPsec exception FQ have already passed
-	 * through the CAAM Job Ring. On success the SEC zeroes the frame
-	 * descriptor status; on auth-tag mismatch, decrypt/padding failure,
-	 * or SEC internal error it sets non-zero status bits.
+	 * through the CAAM Job Ring. When SEC reports an error (auth-tag
+	 * mismatch, decrypt/padding failure, or internal error) the FMAN
+	 * tags the FD with FM_FD_RX_STATUS_ERR_NON_FM (0x00400000) —
+	 * documented in sdk_fman/inc/Peripherals/fm_ext.h as "non Frame-
+	 * Manager error; probably come from SEC". A DMA error on the SEC
+	 * transfer path is also possible and surfaces as FM_FD_ERR_DMA
+	 * (0x01000000).
 	 *
-	 * Dropping the "check SEC errors here" placeholder from the
-	 * original code and not validating the status would let tampered
-	 * ESP ciphertext be accepted upstream as if it had passed ICV:
-	 * an authentication bypass. Reject anything non-zero.
+	 * Testing status != 0 would over-reject: FM_FD_STAT_L4CV
+	 * (0x00000004, L4 checksum validation bit) is informational, not
+	 * an error, and ASK's own kernel patch (951-nxp-ask.patch in
+	 * target/linux/layerscape) explicitly calls this out ("L4CV only
+	 * indicates validation was ATTEMPTED"). Other RX_ERRORS bits come
+	 * from the FMAN parse/classify pipeline which SEC-exception frames
+	 * bypass, so those would be surprising here.
+	 *
+	 * Leaving the original "check SEC errors here" placeholder would
+	 * let tampered ESP ciphertext be accepted upstream as if it had
+	 * passed ICV — an authentication bypass.
 	 */
-	if (unlikely(dq->fd.status != 0)) {
+#define IPSEC_FD_SEC_ERR_MASK	(0x00400000u | 0x01000000u)	/* NON_FM | DMA */
+	if (unlikely(dq->fd.status & IPSEC_FD_SEC_ERR_MASK)) {
 		if (printk_ratelimit())
-			pr_warn_ratelimited("dpa_ipsec: SEC dequeue error status=0x%08x fqid=%u len=%u; dropping\n",
+			pr_warn_ratelimited("dpa_ipsec: SEC error status=0x%08x fqid=%u len=%u; dropping\n",
 					    dq->fd.status, dq->fqid, dq->fd.length20);
 		goto rel_fd;
 	}

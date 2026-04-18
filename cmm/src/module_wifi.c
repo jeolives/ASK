@@ -441,10 +441,11 @@ void cmmWiFiReset(FCI_CLIENT *fci_handle)
 			/* Configure the WiFi interfaces agin*/
 			for( i = 0; i < MAX_WIFI_FF_IFS; i++ )
 			{
-				cmm_print(DEBUG_INFO, "Configuring WiFi VAP\n");
-				if (glbl_wifi_ff_ifs[i].used)
+				if (glbl_wifi_ff_ifs[i].used) {
+					cmm_print(DEBUG_INFO, "Configuring WiFi VAP (%s)\n", glbl_wifi_ff_ifs[i].ifname);
 					if (cmmFeWiFiAddInterface(&glbl_wifi_ff_ifs[i], i))
 						cmm_print(DEBUG_ERROR, "%s: Failed to configure VAP (%s)\n", __func__, glbl_wifi_ff_ifs[i].ifname);
+				}
 			}
 
 		}

@@ -1363,8 +1363,13 @@ int itf_table_init(struct interface_table *ctx)
 	for ( i = 0; i < GEM_PORTS; i++)
 	{
 		port_table[i].ifindex = if_nametoindex(port_table[i].ifname);
+		/* port_table is built-time fixed at GEM_PORTS=7 for LS1043 family,
+		 * but LS1046A boards typically expose 5 GEMACs; eth5/eth6 are
+		 * absent. Downstream code handles ifindex==0 as "port not
+		 * present", so demote this to DEBUG_INFO to stop spamming the
+		 * error log on short-port boards. */
 		if (!port_table[i].ifindex)
-			cmm_print(DEBUG_ERROR, "%s::%d: if_nametoindex(%s) failed\n", __func__, __LINE__,  port_table[i].ifname);
+			cmm_print(DEBUG_INFO, "%s::%d: if_nametoindex(%s) not present, skipping\n", __func__, __LINE__, port_table[i].ifname);
 	}
 
 	LO_IFINDEX = if_nametoindex(LO_INTERFACE_NAME);

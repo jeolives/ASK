@@ -239,6 +239,7 @@ static int __init cdx_module_init(void)
 	/* creating a /proc/fqid_stats dir for listing fqids created by cdx module */
 	cdx_init_fqid_procfs();
 #ifdef START_DPA_APP
+	rc = start_dpa_app();
 	if (rc != 0) {
 		/* Non-fatal: dpa_app can be launched manually later to finish
 		 * PCD programming. Failing the module load here would leave the

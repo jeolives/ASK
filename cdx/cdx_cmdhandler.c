@@ -146,7 +146,7 @@ CMD_DECLARE(mc4)
 CMD_DECLARE(mc6)
 CMD_DECLARE(rtp_relay)
 
-int __init cdx_cmdhandler_init(void)
+int cdx_cmdhandler_init(void)
 {
 	int rc = 0;
 
@@ -175,7 +175,7 @@ exit:
 	return rc;
 }
 
-void __exit cdx_cmdhandler_exit(void)
+void cdx_cmdhandler_exit(void)
 {
 	DPRINT("\n");
 

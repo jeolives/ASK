@@ -360,7 +360,17 @@ static int __fci_cmd(FCI_CLIENT *this_client, unsigned short fcode, void *cmd_bu
 
 	nlh = (struct nlmsghdr *)hdr;
 
-	nlh->nlmsg_len = NLMSG_SPACE(sizeof(struct fci_hdr) + cmd_len);
+	/* nlmsg_len is the actual byte size of this message (header +
+	 * payload), not the aligned stride to the next message. Using
+	 * NLMSG_SPACE here is a pre-existing bug: it rounds up to 4-byte
+	 * alignment, so for commands whose cmd_len isn't a multiple of 4
+	 * (e.g. fpp_l2_bridge_control_cmd_t at 2 bytes) the declared
+	 * nlmsg_len overshoots the bytes the iovec actually sends by up to
+	 * 3 bytes. fci.c's NLMSG_OK validation (added in the security
+	 * hardening pass) then rejects the message as malformed, which
+	 * presents as a 5-second fci_write timeout on every unaligned
+	 * command. Use NLMSG_LENGTH to match bytes sent exactly. */
+	nlh->nlmsg_len = NLMSG_LENGTH(sizeof(struct fci_hdr) + cmd_len);
 
 	 /* standard message type */
 	nlh->nlmsg_type = 0;

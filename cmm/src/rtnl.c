@@ -130,7 +130,15 @@ int cmm_rtnl_neigh_dump_request(struct rtnl_handle *rth, int family)
 void cmm_nlh_init(struct nlmsghdr *nlh, unsigned int len, unsigned short type, unsigned short flags)
 {
 	memset(nlh, 0, sizeof(struct nlmsghdr));
-	nlh->nlmsg_len = NLMSG_SPACE(len);
+	/* nlmsg_len is the actual byte size of this message (header +
+	 * payload), not the aligned stride to a following message. All
+	 * current callers pass 4-aligned kernel-UAPI struct sizes
+	 * (ifinfomsg, ifaddrmsg, rtmsg, ndmsg, l2flow_msg), so NLMSG_SPACE
+	 * happened to equal NLMSG_LENGTH here and the pre-existing bug
+	 * was latent. Switching to NLMSG_LENGTH future-proofs the helper
+	 * for any non-4-aligned payload a future command might add —
+	 * same class of bug as the libfci NLMSG_SPACE fix. */
+	nlh->nlmsg_len = NLMSG_LENGTH(len);
 	nlh->nlmsg_type = type;
 	nlh->nlmsg_flags = flags;
 	nlh->nlmsg_pid = 0;

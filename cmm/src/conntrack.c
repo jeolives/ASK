@@ -3081,6 +3081,18 @@ static void *cmmCtThread(void *data)
 				if (errno != EAGAIN)
 				{
 					cmm_print(DEBUG_ERROR, "%s: cmm_rtnl_listen() failed %s\n", __func__, strerror(errno));
+
+					if (errno == ENOBUFS)
+					{
+						/* Events lost on the link socket — request a full
+						 * RTM_GETLINK dump so missed up/down / MTU / master
+						 * changes get re-learned. The dump replies flow back
+						 * through the same socket and are processed by
+						 * cmmRtnlLink on the next iteration. */
+						struct ifinfomsg ifi = { .ifi_family = AF_UNSPEC };
+						cmm_rtnl_dump_request(&ctx->rth_link, RTM_GETLINK,
+								      &ifi, sizeof(ifi));
+					}
 				}
 			}
 		}
@@ -3093,6 +3105,19 @@ static void *cmmCtThread(void *data)
 				if (errno != EAGAIN)
 				{
 					cmm_print(DEBUG_ERROR, "%s: cmm_rtnl_listen() failed %s\n", __func__, strerror(errno));
+
+					if (errno == ENOBUFS)
+					{
+						/* Events lost on the ifaddr socket — request a full
+						 * RTM_GETADDR dump for both address families so missed
+						 * add/remove of IPv4/IPv6 addresses gets re-learned. */
+						struct ifaddrmsg ifa = { .ifa_family = AF_INET };
+						cmm_rtnl_dump_request(&ctx->rth_ifaddr, RTM_GETADDR,
+								      &ifa, sizeof(ifa));
+						ifa.ifa_family = AF_INET6;
+						cmm_rtnl_dump_request(&ctx->rth_ifaddr, RTM_GETADDR,
+								      &ifa, sizeof(ifa));
+					}
 				}
 			}
 		}
@@ -3105,6 +3130,21 @@ static void *cmmCtThread(void *data)
 				if (errno != EAGAIN)
 				{
 					cmm_print(DEBUG_ERROR, "%s: cmm_rtnl_listen() failed %s\n", __func__, strerror(errno));
+
+					if (errno == ENOBUFS)
+					{
+						/* Events lost on the route socket — request a full
+						 * RTM_GETROUTE dump for v4 and v6 so missed route
+						 * add/delete events get re-learned. Without this the
+						 * fast-path route cache can forward traffic out the
+						 * old path indefinitely. */
+						struct rtmsg rtm = { .rtm_family = AF_INET };
+						cmm_rtnl_dump_request(&ctx->rth_route, RTM_GETROUTE,
+								      &rtm, sizeof(rtm));
+						rtm.rtm_family = AF_INET6;
+						cmm_rtnl_dump_request(&ctx->rth_route, RTM_GETROUTE,
+								      &rtm, sizeof(rtm));
+					}
 				}
 			}
 		}
@@ -3117,6 +3157,19 @@ static void *cmmCtThread(void *data)
 				if (errno != EAGAIN)
 				{
 					cmm_print(DEBUG_ERROR, "%s: cmm_rtnl_listen() failed %s\n", __func__, strerror(errno));
+
+					if (errno == ENOBUFS)
+					{
+						/* Events lost on the rule socket — request a full
+						 * RTM_GETRULE dump for v4 and v6 so missed ip-rule
+						 * add/delete events get re-learned. */
+						struct rtmsg rtm = { .rtm_family = AF_INET };
+						cmm_rtnl_dump_request(&ctx->rth_rule, RTM_GETRULE,
+								      &rtm, sizeof(rtm));
+						rtm.rtm_family = AF_INET6;
+						cmm_rtnl_dump_request(&ctx->rth_rule, RTM_GETRULE,
+								      &rtm, sizeof(rtm));
+					}
 				}
 			}
 		}
@@ -3129,6 +3182,21 @@ static void *cmmCtThread(void *data)
 					if (errno != EAGAIN)
 					{
 						cmm_print(DEBUG_ERROR, "%s: cmm_rtnl_listen() failed %s\n", __func__, strerror(errno));
+
+						if (errno == ENOBUFS)
+						{
+							/* The ABM netlink protocol (NETLINK_L2FLOW) has
+							 * no GET/dump request — the kernel auto_bridge
+							 * module only broadcasts events. Missed events
+							 * are eventually re-sent by the kernel's
+							 * abm_do_work_retransmit worker, so no explicit
+							 * resync is possible here. Log loudly so the
+							 * operator knows some L2 flows may be stale
+							 * until the next retransmit cycle. */
+							cmm_print(DEBUG_ERROR,
+								"%s: abm socket overflow — L2 flow state may be stale until kernel retransmit\n",
+								__func__);
+						}
 					}
 				}
 			}

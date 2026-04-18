@@ -242,6 +242,7 @@ static int __init cdx_module_init(void)
 	}
 	/* creating a /proc/fqid_stats dir for listing fqids created by cdx module */
 	cdx_init_fqid_procfs();
+	register_cdx_deinit_func(cdx_deinit_fqid_procfs);
 #ifdef START_DPA_APP
 	rc = start_dpa_app();
 	if (rc != 0) {

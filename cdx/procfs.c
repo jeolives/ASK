@@ -135,6 +135,23 @@ int cdx_init_fqid_procfs(void)
 	return 0;
 }
 
+/* Remove /proc/fqid_stats and everything under it. proc_remove() recurses,
+ * so one call cleans up tx/, rx/, pcd/, sa/ and any residual per-FQ entries
+ * that weren't explicitly removed (e.g. on a failed init path). Without this,
+ * module reload fails with "proc_dir_entry '/proc/fqid_stats' already
+ * registered" and cdx init aborts. */
+void cdx_deinit_fqid_procfs(void)
+{
+	if (proc_fqid_dir) {
+		proc_remove(proc_fqid_dir);
+		proc_fqid_dir = NULL;
+		proc_tx_dir = NULL;
+		proc_rx_dir = NULL;
+		proc_pcd_dir = NULL;
+		proc_sa_dir = NULL;
+	}
+}
+
 int cdx_create_dir_in_procfs(void **proc_dir_entry, char *name,uint32_t type)
 {
 	cdx_proc_dir_entry_t *proc_entry;

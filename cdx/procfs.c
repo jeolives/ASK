@@ -243,9 +243,9 @@ static int cdx_create_fq_in_procfs(struct qman_fq *fq,
 	memset(node, 0, sizeof(struct fqid_file_list_node_s ));
 	node->fqid = fq->fqid;
 	if (fq_alias_name)
-		sprintf(node->name,"%d_%s",fq->fqid, fq_alias_name);
+		snprintf((char *)node->name, sizeof(node->name), "%d_%s", fq->fqid, fq_alias_name);
 	else
-		sprintf(node->name,"%d",fq->fqid);
+		snprintf((char *)node->name, sizeof(node->name), "%d", fq->fqid);
 	node->fq = fq;
 	node->proc_fs = proc_create_data(node->name, 0444,proc_dir,  &proc_fqid_stats, node);
 	if (!node->proc_fs)

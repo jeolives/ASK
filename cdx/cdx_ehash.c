@@ -3047,29 +3047,61 @@ static struct proc_dir_entry *frag_proc_dir, *stats_file, *alloc_free_test_file;
 
 static ssize_t stats_read(struct file *file, char __user *buf, size_t size, loff_t *ppos)
 {
-	int  tot_len = 0;
+	/* `buf` is a __user pointer; sprintf writes via kernel memory access
+	 * and bypasses copy_to_user, which on hardened kernels oopses and
+	 * generally leaks kernel state semantics into userspace. Build in a
+	 * kernel buffer with bounded scnprintf, then copy_to_user at the
+	 * end — same pattern as proc_fqid_stats_read. */
+	const size_t kbuf_size = 256;
+	char *kbuf;
+	size_t len = 0, remaining;
 	cdx_ucode_frag_info_t  *ucode_frag_args;
+	ssize_t rc;
 
-	if (!create_ddr_and_copy_from_muram((void *)frag_info_g.muram_frag_params, (void **)&ucode_frag_args, sizeof(cdx_ucode_frag_info_t)))
-		return 0;
-	
 	if (*ppos)
 		return 0;
 
-	tot_len += sprintf(buf+tot_len, "IPv4 frames received : %u\n", be32_to_cpu(ucode_frag_args->v4_frames_counter));
-	tot_len += sprintf(buf+tot_len, "IPv6 frames received : %u\n", be32_to_cpu(ucode_frag_args->v6_frames_counter));
-	tot_len += sprintf(buf+tot_len, "Number of IPv4 fragments sent : %u\n", be32_to_cpu(ucode_frag_args->v4_frags_counter));
-	tot_len += sprintf(buf+tot_len, "Number of IPv6 fragments sent : %u\n", be32_to_cpu(ucode_frag_args->v6_frags_counter));
-	tot_len += sprintf(buf+tot_len, "Failures in allocating buffers: %u\n", be32_to_cpu(ucode_frag_args->alloc_buff_failures));
-	*ppos += tot_len;
+	if (!create_ddr_and_copy_from_muram((void *)frag_info_g.muram_frag_params, (void **)&ucode_frag_args, sizeof(cdx_ucode_frag_info_t)))
+		return 0;
 
+	kbuf = kmalloc(kbuf_size, GFP_KERNEL);
+	if (!kbuf) {
+		kfree(ucode_frag_args);
+		return -ENOMEM;
+	}
+
+#define APPEND(fmt, ...) do { \
+		remaining = (len < kbuf_size) ? kbuf_size - len : 0; \
+		len += scnprintf(kbuf + len, remaining, fmt, ##__VA_ARGS__); \
+	} while (0)
+
+	APPEND("IPv4 frames received : %u\n", be32_to_cpu(ucode_frag_args->v4_frames_counter));
+	APPEND("IPv6 frames received : %u\n", be32_to_cpu(ucode_frag_args->v6_frames_counter));
+	APPEND("Number of IPv4 fragments sent : %u\n", be32_to_cpu(ucode_frag_args->v4_frags_counter));
+	APPEND("Number of IPv6 fragments sent : %u\n", be32_to_cpu(ucode_frag_args->v6_frags_counter));
+	APPEND("Failures in allocating buffers: %u\n", be32_to_cpu(ucode_frag_args->alloc_buff_failures));
+#undef APPEND
+
+	if (len > size)
+		len = size;
+	if (copy_to_user(buf, kbuf, len))
+		rc = -EFAULT;
+	else
+		rc = len;
+
+	kfree(kbuf);
 	kfree(ucode_frag_args);
-	return tot_len;
+	if (rc > 0)
+		*ppos += rc;
+	return rc;
 }
 
 
 static ssize_t buff_alloc_test(struct file *file, char __user *buf, size_t size, loff_t *ppos)
 {
+	/* sprintf-into-__user fix: mirror stats_read's kernel-buf approach. */
+	static const char msg[] = "128 buffers allocated and freed successfully\n";
+	size_t msg_len = sizeof(msg) - 1;
 	int ii;
 	struct bm_buffer bmb[128];
 	if (*ppos)
@@ -3083,7 +3115,7 @@ static ssize_t buff_alloc_test(struct file *file, char __user *buf, size_t size,
 		}
 		else
 		{
-			DPA_INFO("%s(%d) bman_acquire success (ii %d) ,%lx \n", 
+			DPA_INFO("%s(%d) bman_acquire success (ii %d) ,%lx \n",
 					__func__,__LINE__,ii,(long unsigned int)bmb[ii].opaque);
 		}
 	}
@@ -3094,9 +3126,12 @@ static ssize_t buff_alloc_test(struct file *file, char __user *buf, size_t size,
 				DPA_ERROR("%s::bman release failed\n", __func__);
 		}
 	}
-	ii = sprintf(buf, "128 buffers allocated and freed successfully\n");
-	*ppos += ii;
-	return ii;
+	if (msg_len > size)
+		msg_len = size;
+	if (copy_to_user(buf, msg, msg_len))
+		return -EFAULT;
+	*ppos += msg_len;
+	return msg_len;
 }
 
 

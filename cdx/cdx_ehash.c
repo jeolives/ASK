@@ -1271,7 +1271,9 @@ static int fill_bridge_actions(struct ins_entry_info *info, POnifDesc ifdesc)
 	}
 
 	if (info->l2_info.num_egress_vlan_hdrs) {
+#ifdef CDX_DPA_DEBUG
 		printk("VLAN hm insert\n");
+#endif
 		if (create_vlan_ins_hm(info))
 			return FAILURE;
 	}

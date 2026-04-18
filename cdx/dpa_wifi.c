@@ -1014,7 +1014,7 @@ static int __hot vwd_skb_to_sg_fd(struct dpaa_vwd_priv_s *priv,
 		{
 			struct skb_shared_info *sh;
 			sh = skb_shinfo(skb);
-			printk(KERN_ERR "%s:: can't linearize, nr_frags: %d\n",__func__, sh->nr_frags);
+			printk_ratelimited(KERN_ERR "%s:: can't linearize, nr_frags: %d\n",__func__, sh->nr_frags);
 			goto skb_failed;
 		}
 	}

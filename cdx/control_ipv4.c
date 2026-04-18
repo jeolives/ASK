@@ -66,7 +66,6 @@ PCT_PAIR ct_alloc(void)
 	ppair = kzalloc(sizeof(CT_PAIR), GFP_KERNEL);
 	if (!ppair)
 		return NULL;
-	memset(ppair, 0, sizeof(CT_PAIR));
 	pEntry_orig = &ppair->orig;
 	pEntry_rep = &ppair->repl;
 

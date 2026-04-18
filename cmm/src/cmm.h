@@ -306,7 +306,13 @@
 	const char *mac_ntop(const void *mac, char *buf, size_t len);
 
 
-	#define STR_TRUNC_COPY(dst, src, len)        do { strncpy((char *)dst, (char *)src, len - 1); *( (unsigned char*) dst + (len - 1) ) = '\0'; } while (0)
+	/* Bounded copy that always null-terminates. Implemented via snprintf
+	 * so GCC 14's -Wstringop-truncation sees the termination guarantee
+	 * (unlike strncpy + manual '\0' which trips the warning despite
+	 * being equivalent). `len` is the destination capacity including the
+	 * NUL byte. If src is longer, it is truncated; dst is always NUL-
+	 * terminated as long as len > 0. */
+	#define STR_TRUNC_COPY(dst, src, len)        do { snprintf((char *)(dst), (len), "%s", (const char *)(src)); } while (0)
 
 	#define STR_TRUNC_END(dst , len)        do { *( (unsigned char*) dst + (len - 1) ) = '\0'; } while (0)
 

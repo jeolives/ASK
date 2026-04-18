@@ -1814,7 +1814,7 @@ static int vwd_init_pcd_fqs(struct dpaa_vwd_priv_s *priv)
 		}
 
 		/*alloc for as many fqs as required */
-		priv->wlan_exception_fq = kzalloc((sizeof(struct dpa_fq) * fqcount), 1);
+		priv->wlan_exception_fq = kzalloc((sizeof(struct dpa_fq) * fqcount), GFP_KERNEL);
 		if (!priv->wlan_exception_fq) {
 			DPAWIFI_ERROR("%s::err allocating fq mem\n", __func__) ;
 			return -1;

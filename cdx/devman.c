@@ -286,6 +286,7 @@ void display_iface_info(struct dpa_iface_info *iface_info)
 static int create_fwd_tx_fqs(struct dpa_iface_info *iface_info)
 {
 	struct eth_iface_info *eth_info = &(iface_info->eth_info);
+	struct dpa_priv_s *priv = netdev_priv(eth_info->net_dev);
 	struct qman_fq *fq;
 	struct qm_mcc_initfq opts;
 	uint32_t ii;
@@ -294,7 +295,7 @@ static int create_fwd_tx_fqs(struct dpa_iface_info *iface_info)
 	for (ii = 0; ii < DPAA_FWD_TX_QUEUES; ii++) {
 		memset(fq, 0, sizeof(struct qman_fq));
 		//FQ for egress
-		if (qman_create_fq(0, 
+		if (qman_create_fq(0,
 					(QMAN_FQ_FLAG_DYNAMIC_FQID | QMAN_FQ_FLAG_TO_DCPORTAL),
 					fq)) {
 			DPA_ERROR("%s::unable to create fq at index %d\n",
@@ -305,8 +306,13 @@ static int create_fwd_tx_fqs(struct dpa_iface_info *iface_info)
 		opts.fqid = fq->fqid;
 		opts.count = 1;
 		opts.we_mask = (QM_INITFQ_WE_FQCTRL | QM_INITFQ_WE_DESTWQ |
-				QM_INITFQ_WE_CONTEXTB | QM_INITFQ_WE_CONTEXTA);
-		opts.fqd.fq_ctrl = QM_FQCTRL_PREFERINCACHE;
+				QM_INITFQ_WE_CONTEXTB | QM_INITFQ_WE_CONTEXTA |
+				QM_INITFQ_WE_CGID);
+		/* Join the stock dpaa_eth per-port egress CGR so frames enqueued
+		 * via the ASK forwarding FQs are counted against the same
+		 * congestion group as the stock TX FQs. */
+		opts.fqd.fq_ctrl = QM_FQCTRL_PREFERINCACHE | QM_FQCTRL_CGE;
+		opts.fqd.cgid = (uint8_t)priv->cgr_data.cgr.cgrid;
 		opts.fqd.dest.channel = eth_info->tx_channel_id;
 		opts.fqd.dest.wq = eth_info->tx_wq;
 		//OVFQ=1 - override FQ in tree

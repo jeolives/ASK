@@ -179,7 +179,6 @@ struct dpa_iface_info {
 	void *tx_proc_entry;
 	void *rx_proc_entry;
 	void *pcd_proc_entry;
-	struct qman_fq *egress_fqs[DPAA_ETH_TX_QUEUES]; /* storage for ethernet FQs replaces by CEETM FQs */
 #ifdef INCLUDE_IFSTATS_SUPPORT
 	void *stats;
 	struct iface_stats *last_stats;

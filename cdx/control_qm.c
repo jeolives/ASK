@@ -434,7 +434,15 @@ int qm_init(void)
 	printk(KERN_INFO "%s:%d\n", __func__, __LINE__);
 #endif
 	set_cmd_handler(EVENT_QM,M_qm_cmdproc);
-#ifdef ENABLE_EGRESS_QOS	
+#ifdef ENABLE_EGRESS_QOS
+	/* CEETM hardware invariants (QorIQ QMan DPAA1, LS1043A/LS1046A).
+	 * Each class scheduler has exactly 8 strict-priority queues (3-bit
+	 * gpc_prio_a field) plus 8 weighted-fair queues (w[8] weight array) —
+	 * 16 CQs per CQ channel. See qm_mcc_ceetm_class_scheduler_config in
+	 * <linux/fsl_qman.h>. */
+	BUILD_BUG_ON(NUM_PQS != 8);
+	BUILD_BUG_ON(NUM_WBFQS != 8);
+
 	memset(&gQMCtx[0], 0, (sizeof(QM_context_ctl) * GEM_PORTS));
 	ceetm_init_channels();
 #endif
@@ -450,10 +458,6 @@ void qm_exit(void)
 #endif
 	return;
 }
-
-#if MAX_SCHEDULER_QUEUES > DPAA_ETH_TX_QUEUES
-#error MAX_SCHEDULER_QUEUES exceeds DPAA_ETH_TX_QUEUES
-#endif
 
 int cdx_enable_ceetm_on_iface(struct dpa_iface_info *iface_info)
 {

@@ -12714,7 +12714,7 @@ index 4085aa9a2dcb..96c3122e665b 100644
  	/* power management data */
  	u32 save_isdr;
 +#ifdef CONFIG_FSL_ASK_QMAN_PORTAL_NAPI
-+	struct net_device dummy_dev;
++	struct net_device *dummy_dev;
 +	struct napi_struct napi;
 +#endif
  #if __BYTE_ORDER__ == __ORDER_LITTLE_ENDIAN__
@@ -12751,10 +12751,10 @@ index 4085aa9a2dcb..96c3122e665b 100644
 +	int cleaned = qman_p_poll_dqrr(portal, budget);
 +
 +	if (cleaned < budget) {
-+		int tmp;
++		int err;
 +		napi_complete(napi);
-+		tmp = qman_p_irqsource_add(portal, QM_PIRQ_DQRI);
-+		//     DPA_BUG_ON(tmp);
++		err = qman_p_irqsource_add(portal, QM_PIRQ_DQRI);
++		WARN_ONCE(err, "qman: DQRI re-arm failed: %d\n", err);
 +	}
 +
 +	return cleaned;
@@ -12765,32 +12765,35 @@ index 4085aa9a2dcb..96c3122e665b 100644
  struct qman_portal *qman_create_portal(
  			struct qman_portal *portal,
  			const struct qm_portal_config *config,
-@@ -737,6 +801,12 @@ struct qman_portal *qman_create_portal(
+@@ -737,6 +801,17 @@ struct qman_portal *qman_create_portal(
  			goto fail_dqrr_mr_empty;
  		}
  	}
 +#ifdef CONFIG_FSL_ASK_QMAN_PORTAL_NAPI
-+	/* Initilize NAPI for Rx processing */
-+	init_dummy_netdev(&portal->dummy_dev);
-+	netif_napi_add(&portal->dummy_dev, &portal->napi, qman_portal_dqrr_poll);
++	/* Initialize NAPI for Rx processing */
++	portal->dummy_dev = alloc_netdev_dummy(0);
++	if (!portal->dummy_dev) {
++		pr_err("QMan: alloc_netdev_dummy failed\n");
++		goto fail_dqrr_mr_empty;
++	}
++	netif_napi_add_weight(portal->dummy_dev, &portal->napi,
++			      qman_portal_dqrr_poll, NAPI_POLL_WEIGHT);
 +	napi_enable(&portal->napi);
 +#endif
  	/* Success */
  	portal->config = config;
  	/*
-@@ -832,6 +902,11 @@ void qman_destroy_portal(struct qman_portal *qm)
- 	const struct qm_portal_config *pcfg;
- 	int i;
+@@ -849,3 +924,9 @@ void qman_destroy_portal(struct qman_portal *qm)
+ 	free_irq(pcfg->public_cfg.irq, qm);
  
 +#ifdef CONFIG_FSL_ASK_QMAN_PORTAL_NAPI
 +	napi_disable(&qm->napi);
 +	netif_napi_del(&qm->napi);
++	free_netdev(qm->dummy_dev);
 +#endif
 +
- 	/* Stop dequeues on the portal */
- 	qm_dqrr_sdqcr_set(&qm->p, 0);
- 
-@@ -3170,6 +3245,7 @@ static int qman_ceetm_configure_lfqmt(struct qm_mcc_ceetm_lfqmt_config *opts)
+ 	kfree(qm->cgrs);
+@@ -3170,6 +3251,7 @@ static int qman_ceetm_configure_lfqmt(struct qm_mcc_ceetm_lfqmt_config *opts)
  	p = get_affine_portal();
  	PORTAL_IRQ_LOCK(p, irqflags);
  
@@ -12798,7 +12801,7 @@ index 4085aa9a2dcb..96c3122e665b 100644
  	mcc = qm_mc_start(&p->p);
  	mcc->lfqmt_config = *opts;
  	qm_mc_commit(&p->p, QM_CEETM_VERB_LFQMT_CONFIG);
-@@ -3233,6 +3309,7 @@ static int qman_ceetm_configure_cq(struct qm_mcc_ceetm_cq_config *opts)
+@@ -3233,6 +3315,7 @@ static int qman_ceetm_configure_cq(struct qm_mcc_ceetm_cq_config *opts)
  
  	mcc = qm_mc_start(&p->p);
  	mcc->cq_config = *opts;
@@ -12806,7 +12809,7 @@ index 4085aa9a2dcb..96c3122e665b 100644
  	qm_mc_commit(&p->p, QM_CEETM_VERB_CQ_CONFIG);
  	while (!(mcr = qm_mc_result(&p->p)))
  		cpu_relax();
-@@ -3296,7 +3373,7 @@ static int qman_ceetm_configure_dct(struct qm_mcc_ceetm_dct_config *opts)
+@@ -3296,7 +3379,7 @@ static int qman_ceetm_configure_dct(struct qm_mcc_ceetm_dct_config *opts)
  
  	p = get_affine_portal();
  	PORTAL_IRQ_LOCK(p, irqflags);
@@ -12815,7 +12818,7 @@ index 4085aa9a2dcb..96c3122e665b 100644
  	mcc = qm_mc_start(&p->p);
  	mcc->dct_config = *opts;
  	qm_mc_commit(&p->p, QM_CEETM_VERB_DCT_CONFIG);
-@@ -3360,6 +3437,8 @@ static int qman_ceetm_configure_class_scheduler(
+@@ -3360,6 +3443,8 @@ static int qman_ceetm_configure_class_scheduler(
  
  	mcc = qm_mc_start(&p->p);
  	mcc->csch_config = *opts;
@@ -12824,7 +12827,7 @@ index 4085aa9a2dcb..96c3122e665b 100644
  	qm_mc_commit(&p->p, QM_CEETM_VERB_CLASS_SCHEDULER_CONFIG);
  	while (!(mcr = qm_mc_result(&p->p)))
  		cpu_relax();
-@@ -3410,7 +3489,7 @@ static int qman_ceetm_query_class_scheduler(struct qm_ceetm_channel *channel,
+@@ -3410,7 +3495,7 @@ static int qman_ceetm_query_class_scheduler(struct qm_ceetm_channel *channel,
  	return 0;
  }
  
@@ -12833,7 +12836,7 @@ index 4085aa9a2dcb..96c3122e665b 100644
  		struct qm_mcc_ceetm_mapping_shaper_tcfc_config *opts)
  {
  	struct qm_mc_command *mcc;
-@@ -3423,6 +3502,8 @@ static int qman_ceetm_configure_mapping_shaper_tcfc(
+@@ -3423,6 +3508,8 @@ static int qman_ceetm_configure_mapping_shaper_tcfc(
  	PORTAL_IRQ_LOCK(p, irqflags);
  
  	mcc = qm_mc_start(&p->p);
@@ -12842,7 +12845,7 @@ index 4085aa9a2dcb..96c3122e665b 100644
  	mcc->mst_config = *opts;
  	qm_mc_commit(&p->p, QM_CEETM_VERB_MAPPING_SHAPER_TCFC_CONFIG);
  	while (!(mcr = qm_mc_result(&p->p)))
-@@ -3440,6 +3521,7 @@ static int qman_ceetm_configure_mapping_shaper_tcfc(
+@@ -3440,6 +3527,7 @@ static int qman_ceetm_configure_mapping_shaper_tcfc(
  	}
  	return 0;
  }
@@ -12850,7 +12853,7 @@ index 4085aa9a2dcb..96c3122e665b 100644
  
  static int qman_ceetm_query_mapping_shaper_tcfc(
  		struct qm_mcc_ceetm_mapping_shaper_tcfc_query *opts,
-@@ -3485,7 +3567,7 @@ static int qman_ceetm_configure_ccgr(struct qm_mcc_ceetm_ccgr_config *opts)
+@@ -3485,7 +3573,7 @@ static int qman_ceetm_configure_ccgr(struct qm_mcc_ceetm_ccgr_config *opts)
  
  	p = get_affine_portal();
  	PORTAL_IRQ_LOCK(p, irqflags);
@@ -12859,7 +12862,7 @@ index 4085aa9a2dcb..96c3122e665b 100644
  	mcc = qm_mc_start(&p->p);
  	mcc->ccgr_config = *opts;
  
-@@ -3903,6 +3985,7 @@ int qman_ceetm_lni_enable_shaper(struct qm_ceetm_lni *lni, int coupled,
+@@ -3903,6 +3991,7 @@ int qman_ceetm_lni_enable_shaper(struct qm_ceetm_lni *lni, int coupled,
  	lni->shaper_couple = coupled;
  	lni->oal = oal;
  
@@ -12867,7 +12870,7 @@ index 4085aa9a2dcb..96c3122e665b 100644
  	config_opts.cid = cpu_to_be16(CEETM_COMMAND_LNI_SHAPER | lni->idx);
  	config_opts.dcpid = lni->dcp_idx;
  	config_opts.shaper_config.cpl = coupled;
-@@ -3936,7 +4019,8 @@ int qman_ceetm_lni_disable_shaper(struct qm_ceetm_lni *lni)
+@@ -3936,7 +4025,8 @@ int qman_ceetm_lni_disable_shaper(struct qm_ceetm_lni *lni)
  		pr_err("The shaper has been disabled\n");
  		return -EINVAL;
  	}
@@ -12877,7 +12880,7 @@ index 4085aa9a2dcb..96c3122e665b 100644
  	config_opts.cid = cpu_to_be16(CEETM_COMMAND_LNI_SHAPER | lni->idx);
  	config_opts.dcpid = lni->dcp_idx;
  	config_opts.shaper_config.cpl = lni->shaper_couple;
-@@ -4173,6 +4257,7 @@ int qman_ceetm_lni_set_tcfcc(struct qm_ceetm_lni *lni,
+@@ -4173,6 +4263,7 @@ int qman_ceetm_lni_set_tcfcc(struct qm_ceetm_lni *lni,
  		return -EINVAL;
  	}
  
@@ -12885,7 +12888,7 @@ index 4085aa9a2dcb..96c3122e665b 100644
  	query_opts.cid = cpu_to_be16(CEETM_COMMAND_TCFC | lni->idx);
  	query_opts.dcpid = lni->dcp_idx;
  	if (qman_ceetm_query_mapping_shaper_tcfc(&query_opts, &query_result)) {
-@@ -4254,6 +4339,7 @@ int qman_ceetm_channel_claim(struct qm_ceetm_channel **channel,
+@@ -4254,6 +4345,7 @@ int qman_ceetm_channel_claim(struct qm_ceetm_channel **channel,
  	p = kzalloc(sizeof(*p), GFP_KERNEL);
  	if (!p)
  		return -ENOMEM;
@@ -12893,7 +12896,7 @@ index 4085aa9a2dcb..96c3122e665b 100644
  	p->idx = channel_idx;
  	p->dcp_idx = lni->dcp_idx;
  	p->lni_idx = lni->idx;
-@@ -4264,7 +4350,7 @@ int qman_ceetm_channel_claim(struct qm_ceetm_channel **channel,
+@@ -4264,7 +4356,7 @@ int qman_ceetm_channel_claim(struct qm_ceetm_channel **channel,
  						channel_idx);
  	config_opts.dcpid = lni->dcp_idx;
  	config_opts.channel_mapping.map_lni_id = lni->idx;
@@ -12902,7 +12905,7 @@ index 4085aa9a2dcb..96c3122e665b 100644
  	if (qman_ceetm_configure_mapping_shaper_tcfc(&config_opts)) {
  		pr_err("Can't map channel#%d for LNI#%d\n",
  						channel_idx, lni->idx);
-@@ -4296,7 +4382,7 @@ int qman_ceetm_channel_release(struct qm_ceetm_channel *channel)
+@@ -4296,7 +4388,7 @@ int qman_ceetm_channel_release(struct qm_ceetm_channel *channel)
  			channel->dcp_idx);
  		return -EINVAL;
  	}
@@ -12911,7 +12914,7 @@ index 4085aa9a2dcb..96c3122e665b 100644
  	config_opts.cid = cpu_to_be16(CEETM_COMMAND_CHANNEL_SHAPER |
  				      channel->idx);
  	config_opts.dcpid = channel->dcp_idx;
-@@ -4334,7 +4420,7 @@ int qman_ceetm_channel_enable_shaper(struct qm_ceetm_channel *channel,
+@@ -4334,7 +4426,7 @@ int qman_ceetm_channel_enable_shaper(struct qm_ceetm_channel *channel,
  		pr_err("This channel shaper has been enabled!\n");
  		return -EINVAL;
  	}
@@ -12920,7 +12923,7 @@ index 4085aa9a2dcb..96c3122e665b 100644
  	channel->shaper_enable = 1;
  	channel->shaper_couple = coupled;
  
-@@ -4347,6 +4433,7 @@ int qman_ceetm_channel_enable_shaper(struct qm_ceetm_channel *channel,
+@@ -4347,6 +4439,7 @@ int qman_ceetm_channel_enable_shaper(struct qm_ceetm_channel *channel,
  		return -EINVAL;
  	}
  
@@ -12928,7 +12931,7 @@ index 4085aa9a2dcb..96c3122e665b 100644
  	config_opts.cid = cpu_to_be16(CEETM_COMMAND_CHANNEL_MAPPING |
  						channel->idx);
  	config_opts.dcpid = channel->dcp_idx;
-@@ -4441,7 +4528,7 @@ int qman_ceetm_channel_set_commit_rate(struct qm_ceetm_channel *channel,
+@@ -4441,7 +4534,7 @@ int qman_ceetm_channel_set_commit_rate(struct qm_ceetm_channel *channel,
  		pr_err("Fail to get the current channel shaper setting\n");
  		return -EINVAL;
  	}
@@ -12937,7 +12940,7 @@ index 4085aa9a2dcb..96c3122e665b 100644
  	channel->cr_token_rate.whole = token_rate->whole;
  	channel->cr_token_rate.fraction = token_rate->fraction;
  	channel->cr_token_bucket_limit = token_limit;
-@@ -4534,7 +4621,8 @@ int qman_ceetm_channel_set_excess_rate(struct qm_ceetm_channel *channel,
+@@ -4534,7 +4627,8 @@ int qman_ceetm_channel_set_excess_rate(struct qm_ceetm_channel *channel,
  		pr_err("Fail to get the current channel shaper setting\n");
  		return -EINVAL;
  	}
@@ -12947,7 +12950,7 @@ index 4085aa9a2dcb..96c3122e665b 100644
  	channel->er_token_rate.whole = token_rate->whole;
  	channel->er_token_rate.fraction = token_rate->fraction;
  	channel->er_token_bucket_limit = token_limit;
-@@ -4618,7 +4706,7 @@ int qman_ceetm_channel_set_weight(struct qm_ceetm_channel *channel,
+@@ -4618,7 +4712,7 @@ int qman_ceetm_channel_set_weight(struct qm_ceetm_channel *channel,
  		pr_err("This channel is a shaped one\n");
  		return -EINVAL;
  	}
@@ -12956,7 +12959,7 @@ index 4085aa9a2dcb..96c3122e665b 100644
  	channel->cr_token_bucket_limit = token_limit;
  	config_opts.cid = cpu_to_be16(CEETM_COMMAND_CHANNEL_SHAPER |
  						channel->idx);
-@@ -4668,7 +4756,7 @@ int qman_ceetm_channel_set_group(struct qm_ceetm_channel *channel, int group_b,
+@@ -4668,7 +4762,7 @@ int qman_ceetm_channel_set_group(struct qm_ceetm_channel *channel, int group_b,
  		pr_err("Can't query channel#%d's scheduler!\n", channel->idx);
  		return -EINVAL;
  	}
@@ -12965,7 +12968,7 @@ index 4085aa9a2dcb..96c3122e665b 100644
  	config_opts.cqcid = cpu_to_be16(channel->idx);
  	config_opts.dcpid = channel->dcp_idx;
  	config_opts.gpc_combine_flag = !group_b;
-@@ -4759,6 +4847,7 @@ int qman_ceetm_channel_set_group_er_eligibility(struct qm_ceetm_channel
+@@ -4759,6 +4853,7 @@ int qman_ceetm_channel_set_group_er_eligibility(struct qm_ceetm_channel
  						channel->idx);
  		return -EINVAL;
  	}
@@ -12973,7 +12976,7 @@ index 4085aa9a2dcb..96c3122e665b 100644
  	csch_config.cqcid = cpu_to_be16(channel->idx);
  	csch_config.dcpid = channel->dcp_idx;
  	csch_config.gpc_combine_flag = csch_query.gpc_combine_flag;
-@@ -4806,6 +4895,7 @@ int qman_ceetm_channel_set_cq_cr_eligibility(struct qm_ceetm_channel *channel,
+@@ -4806,6 +4901,7 @@ int qman_ceetm_channel_set_cq_cr_eligibility(struct qm_ceetm_channel *channel,
  						channel->idx);
  		return -EINVAL;
  	}
@@ -12981,7 +12984,7 @@ index 4085aa9a2dcb..96c3122e665b 100644
  	csch_config.cqcid = cpu_to_be16(channel->idx);
  	csch_config.dcpid = channel->dcp_idx;
  	csch_config.gpc_combine_flag = csch_query.gpc_combine_flag;
-@@ -4889,7 +4979,7 @@ int qman_ceetm_cq_claim(struct qm_ceetm_cq **cq,
+@@ -4889,7 +4985,7 @@ int qman_ceetm_cq_claim(struct qm_ceetm_cq **cq,
  		pr_err("Can't allocate memory for CQ#%d!\n", idx);
  		return -ENOMEM;
  	}
@@ -12990,7 +12993,7 @@ index 4085aa9a2dcb..96c3122e665b 100644
  	list_add_tail(&p->node, &channel->class_queues);
  	p->idx = idx;
  	p->is_claimed = 1;
-@@ -4938,7 +5028,7 @@ int qman_ceetm_cq_claim_A(struct qm_ceetm_cq **cq,
+@@ -4938,7 +5034,7 @@ int qman_ceetm_cq_claim_A(struct qm_ceetm_cq **cq,
  		pr_err("Can't allocate memory for CQ#%d!\n", idx);
  		return -ENOMEM;
  	}
@@ -12999,7 +13002,7 @@ index 4085aa9a2dcb..96c3122e665b 100644
  	list_add_tail(&p->node, &channel->class_queues);
  	p->idx = idx;
  	p->is_claimed = 1;
-@@ -4986,7 +5076,7 @@ int qman_ceetm_cq_claim_B(struct qm_ceetm_cq **cq,
+@@ -4986,7 +5082,7 @@ int qman_ceetm_cq_claim_B(struct qm_ceetm_cq **cq,
  		pr_err("Can't allocate memory for CQ#%d!\n", idx);
  		return -ENOMEM;
  	}
@@ -13008,7 +13011,7 @@ index 4085aa9a2dcb..96c3122e665b 100644
  	list_add_tail(&p->node, &channel->class_queues);
  	p->idx = idx;
  	p->is_claimed = 1;
-@@ -5040,7 +5130,7 @@ int qman_ceetm_set_queue_weight(struct qm_ceetm_cq *cq,
+@@ -5040,7 +5136,7 @@ int qman_ceetm_set_queue_weight(struct qm_ceetm_cq *cq,
  						cq->parent->idx);
  		return -EINVAL;
  	}
@@ -13017,7 +13020,7 @@ index 4085aa9a2dcb..96c3122e665b 100644
  	config_opts.cqcid = cpu_to_be16(cq->parent->idx);
  	config_opts.dcpid = cq->parent->dcp_idx;
  	config_opts.crem = query_result.crem;
-@@ -5257,6 +5347,7 @@ int qman_ceetm_lfq_claim(struct qm_ceetm_lfq **lfq,
+@@ -5257,6 +5353,7 @@ int qman_ceetm_lfq_claim(struct qm_ceetm_lfq **lfq,
  	p = kmalloc(sizeof(*p), GFP_KERNEL);
  	if (!p)
  		return -ENOMEM;

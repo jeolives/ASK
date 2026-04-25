@@ -12634,7 +12634,7 @@ index 4085aa9a2dcb..96c3122e665b 100644
  	/* power management data */
  	u32 save_isdr;
 +#ifdef CONFIG_FSL_ASK_QMAN_PORTAL_NAPI
-+	struct net_device dummy_dev;
++	struct net_device *dummy_dev;
 +	struct napi_struct napi;
 +#endif
  #if __BYTE_ORDER__ == __ORDER_LITTLE_ENDIAN__
@@ -12671,10 +12671,10 @@ index 4085aa9a2dcb..96c3122e665b 100644
 +	int cleaned = qman_p_poll_dqrr(portal, budget);
 +
 +	if (cleaned < budget) {
-+		int tmp;
++		int err;
 +		napi_complete(napi);
-+		tmp = qman_p_irqsource_add(portal, QM_PIRQ_DQRI);
-+		//     DPA_BUG_ON(tmp);
++		err = qman_p_irqsource_add(portal, QM_PIRQ_DQRI);
++		WARN_ONCE(err, "qman: DQRI re-arm failed: %d\n", err);
 +	}
 +
 +	return cleaned;
@@ -12685,32 +12685,35 @@ index 4085aa9a2dcb..96c3122e665b 100644
  struct qman_portal *qman_create_portal(
  			struct qman_portal *portal,
  			const struct qm_portal_config *config,
-@@ -737,6 +801,12 @@ struct qman_portal *qman_create_portal(
+@@ -737,6 +801,17 @@ struct qman_portal *qman_create_portal(
  			goto fail_dqrr_mr_empty;
  		}
  	}
 +#ifdef CONFIG_FSL_ASK_QMAN_PORTAL_NAPI
-+	/* Initilize NAPI for Rx processing */
-+	init_dummy_netdev(&portal->dummy_dev);
-+	netif_napi_add(&portal->dummy_dev, &portal->napi, qman_portal_dqrr_poll);
++	/* Initialize NAPI for Rx processing */
++	portal->dummy_dev = alloc_netdev_dummy(0);
++	if (!portal->dummy_dev) {
++		pr_err("QMan: alloc_netdev_dummy failed\n");
++		goto fail_dqrr_mr_empty;
++	}
++	netif_napi_add_weight(portal->dummy_dev, &portal->napi,
++			      qman_portal_dqrr_poll, NAPI_POLL_WEIGHT);
 +	napi_enable(&portal->napi);
 +#endif
  	/* Success */
  	portal->config = config;
  	/*
-@@ -832,6 +902,11 @@ void qman_destroy_portal(struct qman_portal *qm)
- 	const struct qm_portal_config *pcfg;
- 	int i;
+@@ -849,3 +924,9 @@ void qman_destroy_portal(struct qman_portal *qm)
+ 	free_irq(pcfg->public_cfg.irq, qm);
  
 +#ifdef CONFIG_FSL_ASK_QMAN_PORTAL_NAPI
 +	napi_disable(&qm->napi);
 +	netif_napi_del(&qm->napi);
++	free_netdev(qm->dummy_dev);
 +#endif
 +
- 	/* Stop dequeues on the portal */
- 	qm_dqrr_sdqcr_set(&qm->p, 0);
- 
-@@ -3170,6 +3245,7 @@ static int qman_ceetm_configure_lfqmt(struct qm_mcc_ceetm_lfqmt_config *opts)
+ 	kfree(qm->cgrs);
+@@ -3170,6 +3251,7 @@ static int qman_ceetm_configure_lfqmt(struct qm_mcc_ceetm_lfqmt_config *opts)
  	p = get_affine_portal();
  	PORTAL_IRQ_LOCK(p, irqflags);
  
@@ -12718,7 +12721,7 @@ index 4085aa9a2dcb..96c3122e665b 100644
  	mcc = qm_mc_start(&p->p);
  	mcc->lfqmt_config = *opts;
  	qm_mc_commit(&p->p, QM_CEETM_VERB_LFQMT_CONFIG);
-@@ -3233,6 +3309,7 @@ static int qman_ceetm_configure_cq(struct qm_mcc_ceetm_cq_config *opts)
+@@ -3233,6 +3315,7 @@ static int qman_ceetm_configure_cq(struct qm_mcc_ceetm_cq_config *opts)
  
  	mcc = qm_mc_start(&p->p);
  	mcc->cq_config = *opts;
@@ -12726,7 +12729,7 @@ index 4085aa9a2dcb..96c3122e665b 100644
  	qm_mc_commit(&p->p, QM_CEETM_VERB_CQ_CONFIG);
  	while (!(mcr = qm_mc_result(&p->p)))
  		cpu_relax();
-@@ -3296,7 +3373,7 @@ static int qman_ceetm_configure_dct(struct qm_mcc_ceetm_dct_config *opts)
+@@ -3296,7 +3379,7 @@ static int qman_ceetm_configure_dct(struct qm_mcc_ceetm_dct_config *opts)
  
  	p = get_affine_portal();
  	PORTAL_IRQ_LOCK(p, irqflags);
@@ -12735,7 +12738,7 @@ index 4085aa9a2dcb..96c3122e665b 100644
  	mcc = qm_mc_start(&p->p);
  	mcc->dct_config = *opts;
  	qm_mc_commit(&p->p, QM_CEETM_VERB_DCT_CONFIG);
-@@ -3360,6 +3437,8 @@ static int qman_ceetm_configure_class_scheduler(
+@@ -3360,6 +3443,8 @@ static int qman_ceetm_configure_class_scheduler(
  
  	mcc = qm_mc_start(&p->p);
  	mcc->csch_config = *opts;
@@ -12744,7 +12747,7 @@ index 4085aa9a2dcb..96c3122e665b 100644
  	qm_mc_commit(&p->p, QM_CEETM_VERB_CLASS_SCHEDULER_CONFIG);
  	while (!(mcr = qm_mc_result(&p->p)))
  		cpu_relax();
-@@ -3410,7 +3489,7 @@ static int qman_ceetm_query_class_scheduler(struct qm_ceetm_channel *channel,
+@@ -3410,7 +3495,7 @@ static int qman_ceetm_query_class_scheduler(struct qm_ceetm_channel *channel,
  	return 0;
  }
  
@@ -12753,7 +12756,7 @@ index 4085aa9a2dcb..96c3122e665b 100644
  		struct qm_mcc_ceetm_mapping_shaper_tcfc_config *opts)
  {
  	struct qm_mc_command *mcc;
-@@ -3423,6 +3502,8 @@ static int qman_ceetm_configure_mapping_shaper_tcfc(
+@@ -3423,6 +3508,8 @@ static int qman_ceetm_configure_mapping_shaper_tcfc(
  	PORTAL_IRQ_LOCK(p, irqflags);
  
  	mcc = qm_mc_start(&p->p);
@@ -12762,7 +12765,7 @@ index 4085aa9a2dcb..96c3122e665b 100644
  	mcc->mst_config = *opts;
  	qm_mc_commit(&p->p, QM_CEETM_VERB_MAPPING_SHAPER_TCFC_CONFIG);
  	while (!(mcr = qm_mc_result(&p->p)))
-@@ -3440,6 +3521,7 @@ static int qman_ceetm_configure_mapping_shaper_tcfc(
+@@ -3440,6 +3527,7 @@ static int qman_ceetm_configure_mapping_shaper_tcfc(
  	}
  	return 0;
  }
@@ -12770,7 +12773,7 @@ index 4085aa9a2dcb..96c3122e665b 100644
  
  static int qman_ceetm_query_mapping_shaper_tcfc(
  		struct qm_mcc_ceetm_mapping_shaper_tcfc_query *opts,
-@@ -3485,7 +3567,7 @@ static int qman_ceetm_configure_ccgr(struct qm_mcc_ceetm_ccgr_config *opts)
+@@ -3485,7 +3573,7 @@ static int qman_ceetm_configure_ccgr(struct qm_mcc_ceetm_ccgr_config *opts)
  
  	p = get_affine_portal();
  	PORTAL_IRQ_LOCK(p, irqflags);
@@ -12779,7 +12782,7 @@ index 4085aa9a2dcb..96c3122e665b 100644
  	mcc = qm_mc_start(&p->p);
  	mcc->ccgr_config = *opts;
  
-@@ -3903,6 +3985,7 @@ int qman_ceetm_lni_enable_shaper(struct qm_ceetm_lni *lni, int coupled,
+@@ -3903,6 +3991,7 @@ int qman_ceetm_lni_enable_shaper(struct qm_ceetm_lni *lni, int coupled,
  	lni->shaper_couple = coupled;
  	lni->oal = oal;
  

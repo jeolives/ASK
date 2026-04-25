@@ -1095,10 +1095,6 @@ int cdx_init_scatter_gather_bpool(void)
 static int add_ipsec_bpool(struct ipsec_info *info)
 {
 	struct dpa_bp *bp,*bp_parent;
-	//int buffer_count = 0, ret = 0, refill_cnt ;
-	//int ret =0;
-	printk (KERN_INFO"\n ################## %s", 
-			__func__);
 
 	bp = kzalloc(sizeof(struct dpa_bp), GFP_KERNEL);
 	if (unlikely(bp == NULL)) {
@@ -1130,9 +1126,7 @@ static int add_ipsec_bpool(struct ipsec_info *info)
 		kfree(bp);
 		return -1;
 	}
-	DPAIPSEC_INFO("%s::bp->size :%zu, bpid %d\n", 
-			__func__, bp->size, bp->bpid);
-	printk (KERN_INFO"\n ################## %s::bp->size :%zu, bpid %d\n", 
+	DPAIPSEC_INFO("%s::bp->size :%zu, bpid %d\n",
 			__func__, bp->size, bp->bpid);
 	info->ipsec_bp = bp;
 

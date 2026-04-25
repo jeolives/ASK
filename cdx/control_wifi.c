@@ -108,7 +108,9 @@ static int wifi_vap_entry( U16 *ptr, U16 len )
 static U16 wifi_vap_entry_handle(void *pcmd, U16 cmd_len, U16 *out_reply_len)
 {
 	(void)out_reply_len;
+#ifdef CDX_DPA_DEBUG
 	printk(KERN_INFO "%s:%d\n", __func__, __LINE__);
+#endif
 	return (U16)wifi_vap_entry(pcmd, cmd_len);
 }
 
@@ -119,8 +121,9 @@ static U16 wifi_vap_query_handle(void *pcmd, U16 cmd_len, U16 *out_reply_len)
 	U16 i;
 
 	(void)cmd_len;
+#ifdef CDX_DPA_DEBUG
 	printk(KERN_INFO "%s:%d\n", __func__, __LINE__);
-	printk("%s:%d\n", __func__, __LINE__);
+#endif
 
 	for (i = 0; i < MAX_WIFI_VAPS; i++) {
 		vaps[i].vap_id = wifiDesc[i].VAPID;
@@ -143,8 +146,9 @@ static U16 wifi_vap_reset_handle(void *pcmd, U16 cmd_len, U16 *out_reply_len)
 	(void)pcmd;
 	(void)cmd_len;
 	(void)out_reply_len;
+#ifdef CDX_DPA_DEBUG
 	printk(KERN_INFO "%s:%d\n", __func__, __LINE__);
-	printk(KERN_INFO "%s:%d\n", __func__, __LINE__);
+#endif
 	for (i = 0; i < MAX_WIFI_VAPS; i++) {
 		if (wifiDesc[i].VAPID != 0xFFFF) {
 			wifiDesc[i].VAPID = 0xFFFF;

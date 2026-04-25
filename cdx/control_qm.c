@@ -430,7 +430,9 @@ static U16 M_qm_cmdproc(U16 cmd_code, U16 cmd_len, U16 *p)
  */
 int qm_init(void)
 {
+#ifdef CDX_DPA_DEBUG
 	printk(KERN_INFO "%s:%d\n", __func__, __LINE__);
+#endif
 	set_cmd_handler(EVENT_QM,M_qm_cmdproc);
 #ifdef ENABLE_EGRESS_QOS	
 	memset(&gQMCtx[0], 0, (sizeof(QM_context_ctl) * GEM_PORTS));

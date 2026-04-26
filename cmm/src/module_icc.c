@@ -454,6 +454,8 @@ int IccQuery(daemon_handle_t daemon_handle, int argc, char *argv[])
 				}
 				case ICC_TABLETYPE_PROTOCOL:
 				{
+					size_t off = 0;
+
 					buf[0] = '\0';
 					for (i = 0; i < 256; i++)
 					{
@@ -462,14 +464,16 @@ int IccQuery(daemon_handle_t daemon_handle, int argc, char *argv[])
 						j = i + 1;
 						if (j == 256 || !testbit_in_array(prsp->protocol.ipproto, j))
 						{
-							sprintf(buf + strlen(buf), "%d ", i);
+							off += snprintf(buf + off, sizeof(buf) - off, "%d ", i);
 						}
 						else
 						{
 							while (j < 255 && testbit_in_array(prsp->protocol.ipproto, j + 1))
 								j++;
-							sprintf(buf + strlen(buf), "%d-%d ", i, j);
+							off += snprintf(buf + off, sizeof(buf) - off, "%d-%d ", i, j);
 						}
+						if (off >= sizeof(buf))
+							break;
 						i = j;
 					}
 					cmm_print(DEBUG_STDOUT, "Protocols: %s\n", buf);
@@ -477,6 +481,8 @@ int IccQuery(daemon_handle_t daemon_handle, int argc, char *argv[])
 				}
 				case ICC_TABLETYPE_DSCP:
 				{
+					size_t off = 0;
+
 					buf[0] = '\0';
 					for (i = 0; i < 64; i++)
 					{
@@ -485,14 +491,16 @@ int IccQuery(daemon_handle_t daemon_handle, int argc, char *argv[])
 						j = i + 1;
 						if (j == 64 || !testbit_in_array(prsp->dscp.dscp_value, j))
 						{
-							sprintf(buf + strlen(buf), "%d ", i);
+							off += snprintf(buf + off, sizeof(buf) - off, "%d ", i);
 						}
 						else
 						{
 							while (j < 63 && testbit_in_array(prsp->dscp.dscp_value, j + 1))
 								j++;
-							sprintf(buf + strlen(buf), "%d-%d ", i, j);
+							off += snprintf(buf + off, sizeof(buf) - off, "%d-%d ", i, j);
 						}
+						if (off >= sizeof(buf))
+							break;
 						i = j;
 					}
 					cmm_print(DEBUG_STDOUT, "DSCP values: %s\n", buf);

@@ -171,6 +171,15 @@ int MC4_Get_Next_Hash_Entry(PMC4Command pMC4Cmd, int reset_action)
 
 			if(mc4_hash_entries > mc4_snapshot_buf_entries)
 			{
+				/* Defense-in-depth: mc4_hash_entries is module-
+				 * internal but a counter-drift between bIsValidEntry
+				 * and uiListenerCnt (the M1 class upstream addressed
+				 * in 5f9fbf0) could in theory push it large enough
+				 * to wrap the multiplicand. Bound before alloc. */
+				if (mc4_hash_entries > SIZE_MAX / sizeof(MC4Command)) {
+					retval = ERR_NOT_ENOUGH_MEMORY;
+					goto out;
+				}
 				if(pMC4Snapshot)
 					Heap_Free(pMC4Snapshot);
 				pMC4Snapshot = Heap_Alloc(mc4_hash_entries * sizeof(MC4Command));
@@ -341,6 +350,10 @@ int MC6_Get_Next_Hash_Entry(PMC6Command pMC6Cmd, int reset_action)
 
 			if(mc6_hash_entries > mc6_snapshot_buf_entries)
 			{
+				if (mc6_hash_entries > SIZE_MAX / sizeof(MC6Command)) {
+					retval = ERR_NOT_ENOUGH_MEMORY;
+					goto out;
+				}
 				if(pMC6Snapshot)
 					Heap_Free(pMC6Snapshot);
 				pMC6Snapshot = Heap_Alloc(mc6_hash_entries * sizeof(MC6Command));

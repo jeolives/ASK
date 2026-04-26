@@ -251,7 +251,17 @@ static void fci_outbound_err(int nl_type, struct sk_buff *skb, u32 pid, struct n
 
 	errmsg = nlmsg_data(rep);
 	errmsg->error = err;
-	memcpy(&errmsg->msg, nlh, err ? nlh->nlmsg_len : sizeof(*nlh));
+	{
+		/* nlh->nlmsg_len was validated against skb->len in
+		 * __fci_fe_inbound_data before dispatch, so the source range
+		 * is bounded. Defense-in-depth: clamp by FCI_MSG_SIZE (the
+		 * reply skb was sized for that) so a future inbound-validation
+		 * regression can't turn this into an OOB write. */
+		size_t copy_len = err ? nlh->nlmsg_len : sizeof(*nlh);
+		if (copy_len > FCI_MSG_SIZE)
+			copy_len = FCI_MSG_SIZE;
+		memcpy(&errmsg->msg, nlh, copy_len);
+	}
 
 	NETLINK_CB(skb).portid = 0;	/* from kernel */
 

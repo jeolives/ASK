@@ -265,11 +265,11 @@ void *get_ethdist_info_by_fman_params(struct cdx_fman_info *finfo)
 	for (ii = 0; ii < finfo->max_ports; ii++) {
 		dist = port_info->dist_info;
 		for (jj = 0; jj < port_info->max_dist; jj++) {
-			if (dist->type == ETHERNET_DIST) {   // dist ++  is  missing in this for loop
+			if (dist->type == ETHERNET_DIST)
 				return (dist->handle);
-			}
+			dist++;
 		}
-		port_info++; 
+		port_info++;
 	}
 	return NULL;
 }

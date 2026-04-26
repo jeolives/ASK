@@ -414,16 +414,19 @@ int get_oh_port_pcd_fqinfo(uint32_t fm_idx, uint32_t handle, uint32_t type,
 				__func__, handle);
 		return -1;
 	}
-	iface_info = info->ohinfo;	
+	iface_info = info->ohinfo;
 	dist = iface_info->dist_info;
 	for (ii = 0; ii < iface_info->max_dist; ii++) {
 		if (dist->type == type) {
 			*pfqid = dist->base_fqid;
 			*count = dist->count;
+			return 0;
 		}
 		dist++;
 	}
-	return 0;
+	DPA_ERROR("%s::no dist of type %u on fm%u ofport %u\n",
+			__func__, type, fm_idx, handle);
+	return -1;
 }
 
 

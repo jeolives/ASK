@@ -136,15 +136,22 @@
 	extern pthread_mutex_t neighMutex;
 #ifdef IPSEC_FLOW_CACHE
 	extern pthread_mutex_t flowMutex;
+	#define IPSEC_FLOW_CACHE_FLOWMUTEX_LOCK \
+		else if (mutex == &flowMutex) mutexes |= 0x1000;
+	#define IPSEC_FLOW_CACHE_FLOWMUTEX_UNLOCK \
+		else if (mutex == &flowMutex) mutexes &= ~0x1000;
+#else
+	#define IPSEC_FLOW_CACHE_FLOWMUTEX_LOCK
+	#define IPSEC_FLOW_CACHE_FLOWMUTEX_UNLOCK
 #endif /* IPSEC_FLOW_CACHE */
-	
-	int mutexes;
+
+	extern int mutexes;
 	#define __pthread_mutex_lock(mutex)		\
 		({	\
 			if (mutex == &ctMutex) mutexes |= 0x1; \
 			else if (mutex == &rtMutex) mutexes |= 0x10; \
 			else if (mutex == &neighMutex) mutexes |= 0x100; \
-			else if (mutex == &flowMutex) mutexes |= 0x1000; \
+			IPSEC_FLOW_CACHE_FLOWMUTEX_LOCK \
 			cmm_print(DEBUG_CRIT, "0x%04x: lock at %s %u\n", mutexes, __func__, __LINE__); \
 			pthread_mutex_lock (mutex);	\
 		})
@@ -153,7 +160,7 @@
 			if (mutex == &ctMutex) mutexes &= ~0x1; \
 			else if (mutex == &rtMutex) mutexes &= ~0x10; \
 			else if (mutex == &neighMutex) mutexes &= ~0x100; \
-			else if (mutex == &flowMutex) mutexes &= ~0x1000; \
+			IPSEC_FLOW_CACHE_FLOWMUTEX_UNLOCK \
 			cmm_print(DEBUG_CRIT, "0x%04x: unlock at %s %u\n", mutexes, __func__, __LINE__); \
 			pthread_mutex_unlock (mutex);	\
 		})

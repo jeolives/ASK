@@ -32,6 +32,10 @@
 struct cmm_global globalConf;
 unsigned int nf_conntrack_max = CONNTRACK_MAX;
 
+#ifdef MUTEX_DEBUG
+int mutexes;
+#endif
+
 #ifdef ARCH_ARM32
 struct kernel_ucontext {
 	unsigned long     uc_flags;

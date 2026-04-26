@@ -2196,11 +2196,15 @@ err_ret7:
 #ifdef ENABLE_EGRESS_QOS
 	cdx_disable_ceetm_on_iface(iface_info);
 err_ret6:
+#endif
 #ifdef DPA_IPSEC_OFFLOAD
+	/* Symmetric with the forward call (gated by DPA_IPSEC_OFFLOAD
+	 * only, ~30 lines up). The fall-through from err_ret7 must hit
+	 * this site whenever DPA_IPSEC_OFFLOAD is defined, regardless
+	 * of ENABLE_EGRESS_QOS — otherwise a later-step failure leaves
+	 * the discard mask un-restored. err_ret5 keeps its semantics:
+	 * reconfigure itself failed, no restore needed. */
 	dpa_bman_restore_discard_mask(iface_info);
-#endif
-#endif
-#ifdef DPA_IPSEC_OFFLOAD
 err_ret5:
 #endif
 	/* Note: dpa_remove_ethport_ff_policier_profile() leaks the

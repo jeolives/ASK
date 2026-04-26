@@ -571,12 +571,12 @@ static int get_eth_iface_info(struct dpa_iface_info *iface_info,
 	eth_info->num_pools = (int)priv->bp_count;
 	if (eth_info->num_pools > MAX_PORT_BMAN_POOLS) {
 		DPA_ERROR("%s::invalid num pools value\n", __func__);
-		return FAILURE;
+		goto err_put;
 	}
 	bp = priv->dpa_bp;
 	for (ii = 0; ii < eth_info->num_pools; ii++) {
 		eth_info->pool_info[ii].pool_id = bp->bpid ;
-		eth_info->pool_info[ii].buf_size = bp->size; 
+		eth_info->pool_info[ii].buf_size = bp->size;
 		eth_info->pool_info[ii].count = bp->config_count;
 		eth_info->pool_info[ii].base_addr = bp->paddr;
 		bp++;
@@ -587,14 +587,22 @@ static int get_eth_iface_info(struct dpa_iface_info *iface_info,
 		eth_info->eth_tx_fqinfo[ii].num_fqs = 1;
 	}
 	//get channel and workqueue to be use for transmit
-	if (dpa_get_tx_chnl_info(eth_info->eth_tx_fqinfo[0].fq_base, 
-				&eth_info->tx_channel_id, 
+	if (dpa_get_tx_chnl_info(eth_info->eth_tx_fqinfo[0].fq_base,
+				&eth_info->tx_channel_id,
 				&eth_info->tx_wq)) {
-		DPA_ERROR("%s::dpa_get_tx_chnl_info failed\n", 
+		DPA_ERROR("%s::dpa_get_tx_chnl_info failed\n",
 				__func__);
-		return FAILURE;
+		goto err_put;
 	}
 	return SUCCESS;
+err_put:
+	/* Release the dev_get_by_name reference acquired above. The
+	 * device pointer was also stored into eth_info->net_dev, but on
+	 * the FAILURE path the caller drops iface_info without further
+	 * cleanup, so the ref must be balanced here. */
+	dev_put(device);
+	eth_info->net_dev = NULL;
+	return FAILURE;
 }
 
 

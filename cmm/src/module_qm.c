@@ -590,7 +590,7 @@ int cmmQmSecQueryProcess(char **keywords, int tabStart, daemon_handle_t daemon_h
 		struct fpp_qm_ingress_policer_info *pstats;
 
 		query = (fpp_qm_sec_plcr_query_stats_cmd_t *)rxbuf.rcvBuffer;
-		memset(query, 0, sizeof(fpp_qm_ingress_plcr_query_stats_cmd_t));
+		memset(query, 0, sizeof(*query));
 
 		cpt++;
 		if((keywords[cpt])) {
@@ -1514,7 +1514,7 @@ static int qm_ingress_policer_cfg(char **keywords, int *pcpt, daemon_handle_t da
 					cmm_print(DEBUG_ERROR, "Enable/Disable operation unsuccessful\n");
 				}
 				else
-					cmm_print(DEBUG_STDOUT, "policer enable/disable operation successful on queue_no %d\n",enableCmd.queue_no);
+					cmm_print(DEBUG_STDOUT, "policer enable/disable operation successful on queue_no %u\n",enableCmd.queue_no);
 			}
 			return QM_SUCCESS;
 		}
@@ -1548,7 +1548,7 @@ static int qm_ingress_policer_cfg(char **keywords, int *pcpt, daemon_handle_t da
 				endptr = NULL;
 				tmp = strtoul(keywords[cpt], &endptr, 0);
 				if ((keywords[cpt] == endptr) || ((tmp < QM_INGRESS_MIN_PIR) || (tmp > QM_INGRESS_MAX_PIR))) {
-					cmm_print(DEBUG_CRIT, "CMD_QM_INGRESS_POLICER_CFG ERROR: invalid pir rate pir %d\n",tmp);
+					cmm_print(DEBUG_CRIT, "CMD_QM_INGRESS_POLICER_CFG ERROR: invalid pir rate pir %u\n",tmp);
 					goto help;
 				}
 				if ( tmp < policerCfgcmd.cir) {
@@ -1578,6 +1578,7 @@ static int qm_ingress_policer_cfg(char **keywords, int *pcpt, daemon_handle_t da
 		{
 			fpp_qm_ingress_policer_reset_cmd_t resetCmd;
 
+			memset(&resetCmd, 0, sizeof(resetCmd));
 			/* Send CMD_QM_INGRESS_POLICER_RESET command */
 			if(cmmSendToDaemon(daemon_handle, FPP_CMD_QM_INGRESS_POLICER_RESET, &resetCmd, sizeof(fpp_qm_ingress_policer_reset_cmd_t),
 						&rxbuf.rcvBuffer) == 2) {
@@ -1628,6 +1629,7 @@ static int qm_sec_policer_cfg(char **keywords, int cpt, daemon_handle_t daemon_h
 	{
 		fpp_qm_ingress_policer_reset_cmd_t resetCmd;
 
+		memset(&resetCmd, 0, sizeof(resetCmd));
 		/* Send FPP_CMD_QM_SEC_POLICER_RESET command */
 		if(cmmSendToDaemon(daemon_handle, FPP_CMD_QM_SEC_POLICER_RESET,
 				&resetCmd, sizeof(fpp_qm_ingress_policer_reset_cmd_t), &rxbuf.rcvBuffer) == 2) {
@@ -1719,7 +1721,7 @@ static int qm_sec_policer_cfg(char **keywords, int cpt, daemon_handle_t daemon_h
 help:
 	cmm_print(DEBUG_STDOUT, "Usage: set qm sec_rate cir {%u - %u} pir {%u - %u} cbs {%u - %u} pbs {%u - %u}\n",
 			QM_SECRATE_MIN_CIR, QM_SECRATE_MAX_CIR, QM_SECRATE_MIN_PIR, QM_SECRATE_MAX_PIR,
-			QM_SECRATE_MIN_CBS, QM_SECRATE_MAX_CBS, QM_SECRATE_MAX_PBS, QM_SECRATE_MIN_PBS);
+			QM_SECRATE_MIN_CBS, QM_SECRATE_MAX_CBS, QM_SECRATE_MIN_PBS, QM_SECRATE_MAX_PBS);
 	cmm_print(DEBUG_STDOUT, "Usage: set qm sec_rate reset \n");
 	return QM_ERROR;
 }

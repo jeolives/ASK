@@ -630,11 +630,25 @@ static int abm_nl_rcv_msg(struct sk_buff *skb, struct nlmsghdr *nlh ,struct netl
 			if(tb[L2FLOWA_PPP_S_ID])
 				l2flow_temp.session_id = nla_get_u16(tb[L2FLOWA_PPP_S_ID]);
 
-			if(tb[L2FLOWA_IP_SRC])
+			if(tb[L2FLOWA_IP_SRC]) {
+				/* nla_policy enforces .len = sizeof_field above, so
+				 * the policy parser already rejects oversized inputs.
+				 * Defense-in-depth: re-check before memcpy in case a
+				 * future policy edit drops the constraint. */
+				if (nla_len(tb[L2FLOWA_IP_SRC]) > sizeof_field(struct l2flow, l3.saddr.all)) {
+					err = -EINVAL;
+					goto out;
+				}
 				memcpy(&l2flow_temp.l3.saddr.all, nla_data(tb[L2FLOWA_IP_SRC]), nla_len(tb[L2FLOWA_IP_SRC]));
+			}
 
-			if(tb[L2FLOWA_IP_DST])
+			if(tb[L2FLOWA_IP_DST]) {
+				if (nla_len(tb[L2FLOWA_IP_DST]) > sizeof_field(struct l2flow, l3.daddr.all)) {
+					err = -EINVAL;
+					goto out;
+				}
 				memcpy(&l2flow_temp.l3.daddr.all, nla_data(tb[L2FLOWA_IP_DST]), nla_len(tb[L2FLOWA_IP_DST]));
+			}
 
 			if(tb[L2FLOWA_IP_PROTO])
 				l2flow_temp.l3.proto= nla_get_u8(tb[L2FLOWA_IP_PROTO]);
@@ -1027,8 +1041,15 @@ static inline int abm_build_l2flow(struct sk_buff *skb, struct l2flow *l2flow_te
 			l3_hdr_len = ipv6_skip_exthdr(skb, sizeof(_ip6h), &nexthdr, &frag_off);
 			if(l3_hdr_len == -1)
 				return -1;
-			
+
 			l2flow_temp->l3.proto = nexthdr;
+			/* Mirror IPv4: don't trust L4 ports on a fragment. For
+			 * non-first fragments there's no L4 header at l3_hdr_len,
+			 * just payload bytes that would otherwise get hashed into
+			 * the flow key. ipv6_skip_exthdr sets frag_off non-zero
+			 * when it traversed a fragment header. */
+			if (frag_off)
+				return 0;
 		}
 		else
 			return -1; //We don't support
@@ -1416,8 +1437,15 @@ static int abm_seq_show(struct seq_file *seq, void *v)
 
 		seq_printf(seq, "  State=[%s]", l2flow_states_string[entry->state]);
 		
-		if(entry->state != L2FLOW_STATE_FF)
-			seq_printf(seq, "  Timeout=%ds",(int) (entry->timeout.expires- jiffies)/HZ);
+		if(entry->state != L2FLOW_STATE_FF) {
+			/* timeout.expires can be in the past for entries already
+			 * past their deadline; clamp to 0 so the value displays
+			 * as "0s" rather than wrapping to a huge unsigned. */
+			long remaining = (long)entry->timeout.expires - (long)jiffies;
+			if (remaining < 0)
+				remaining = 0;
+			seq_printf(seq, "  Timeout=%lds", remaining / HZ);
+		}
 
 		if(abm_l3_filtering){
 			if(l2flowtmp->ethertype == htons(ETH_P_IP)){

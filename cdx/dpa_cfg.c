@@ -211,15 +211,22 @@ static void release_cfg_info(void) __must_hold(&dpa_cfg_lock)
 	num_fmans = 0;
 }
 
-//allocate and copy distribution info from uspace 
+/*
+ * Same caller-contract as get_port_info: port_info->dist_info holds
+ * a userspace pointer on entry (from the bulk copy_from_user inside
+ * get_port_info); on exit it's either a kernel allocation or NULL.
+ */
 static int get_dist_info(struct cdx_port_info *port_info)
 {
 	uint32_t mem_size;
 	struct cdx_dist_info *dist_info;
 	void *uspace_info;
 
+	uspace_info = port_info->dist_info;
+	port_info->dist_info = NULL;
+
 #ifdef DPA_CFG_DEBUG
-	DPA_INFO("%s::port %s dist %d\n", __func__, 
+	DPA_INFO("%s::port %s dist %d\n", __func__,
 			port_info->name, port_info->max_dist);
 #endif
 	if (port_info->max_dist > CDX_MAX_DIST) {
@@ -235,14 +242,14 @@ static int get_dist_info(struct cdx_port_info *port_info)
 				__func__);
 		return -ENOMEM;
 	}
-	uspace_info = port_info->dist_info;
-	port_info->dist_info = dist_info;
-	if (copy_from_user(dist_info, uspace_info, 
+	if (copy_from_user(dist_info, uspace_info,
 				mem_size)) {
 		DPA_ERROR("%s::Read dist_info failed port %s\n",
 				__func__, port_info->name);
+		kfree(dist_info);
 		return -EIO;
 	}
+	port_info->dist_info = dist_info;
 	return 0;
 }
 
@@ -317,12 +324,23 @@ static void *get_dist_info_by_fman_params(struct cdx_fman_info *finfo, uint32_t 
 #endif //CDX_RTP_RELAY
 
 //allocate and copy port releated info from uspace 
-static int get_port_info(struct cdx_fman_info *finfo) 
-{	
+/*
+ * Caller-contract: finfo->portinfo holds a userspace pointer on
+ * entry (transferred from cdx_ioc_set_dpa_params). On exit, the
+ * field either points to a kernel kcalloc()'d array (success or
+ * late-failure after copy_from_user) or is NULL (early failure
+ * before copy_from_user). release_cfg_info() must never see a
+ * userspace pointer in this field.
+ */
+static int get_port_info(struct cdx_fman_info *finfo)
+{
 	struct cdx_port_info *port_info;
 	void *uspace_info;
 	uint32_t mem_size;
 	uint32_t ii;
+
+	uspace_info = finfo->portinfo;
+	finfo->portinfo = NULL;
 
 	if (finfo->max_ports > CDX_MAX_PORTS) {
 		DPA_ERROR("%s::invalid max_ports %u (cap %u)\n",
@@ -342,13 +360,13 @@ static int get_port_info(struct cdx_fman_info *finfo)
 				__func__);
 		return -ENOMEM;
 	}
-	uspace_info = finfo->portinfo;
-	finfo->portinfo = port_info;
 	if (copy_from_user(port_info, uspace_info, mem_size)) {
 		DPA_ERROR("%s::Read port_info failed\n",
 				__func__);
+		kfree(port_info);
 		return -EIO;
 	}
+	finfo->portinfo = port_info;
 	//put the linux name for the port
 	for (ii = 0; ii < finfo->max_ports; ii++) {
 		struct net_device *dev;
@@ -384,14 +402,21 @@ static int get_port_info(struct cdx_fman_info *finfo)
 		port_info++;
 	}
 	return 0;
-}	
+}
 
-//allocate and copy cc table infor from uspace
-static int get_cctbl_info(struct cdx_fman_info *finfo) 
-{	
+/*
+ * Same caller-contract as get_port_info: finfo->tbl_info holds a
+ * userspace pointer on entry; on exit it's either a kernel
+ * allocation or NULL.
+ */
+static int get_cctbl_info(struct cdx_fman_info *finfo)
+{
 	struct table_info *tbl_info;
 	uint32_t mem_size;
 	void *uspace_info;
+
+	uspace_info = finfo->tbl_info;
+	finfo->tbl_info = NULL;
 
 	if (finfo->num_tables > CDX_MAX_TABLES) {
 		DPA_ERROR("%s::invalid num_tables %u (cap %u)\n",
@@ -407,14 +432,14 @@ static int get_cctbl_info(struct cdx_fman_info *finfo)
 				__func__);
 		return -ENOMEM;
 	}
-	uspace_info = finfo->tbl_info;
-	finfo->tbl_info = tbl_info;
-	//copy table related info from user space	
+	//copy table related info from user space
 	if (copy_from_user(tbl_info, (void *)uspace_info, mem_size)) {
 		DPA_ERROR("%s::Read tbl_info failed\n",
 				__func__);
+		kfree(tbl_info);
 		return -EIO;
 	}
+	finfo->tbl_info = tbl_info;
 	return 0;
 }
 
@@ -648,6 +673,8 @@ int cdx_ioc_set_dpa_params(unsigned long args)
 {
 	struct cdx_ctrl_set_dpa_params params;
 	struct cdx_fman_info *finfo;
+	void __user **uspace_portinfo = NULL;
+	void __user **uspace_tblinfo = NULL;
 	uint32_t ii;
 	int retval;
 
@@ -680,6 +707,12 @@ int cdx_ioc_set_dpa_params(unsigned long args)
 #ifdef DPA_CFG_DEBUG
 	DPA_INFO("%s::num fmans %d\n", __func__, num_fmans);
 #endif
+	uspace_portinfo = kcalloc(num_fmans, sizeof(*uspace_portinfo), GFP_KERNEL);
+	uspace_tblinfo = kcalloc(num_fmans, sizeof(*uspace_tblinfo), GFP_KERNEL);
+	if (!uspace_portinfo || !uspace_tblinfo) {
+		retval = -ENOMEM;
+		goto err_ret;
+	}
 	//get fman info
 	if (copy_from_user(fman_info, (void *)params.fman_info,
 				(sizeof(struct cdx_fman_info) * num_fmans))) {
@@ -687,6 +720,21 @@ int cdx_ioc_set_dpa_params(unsigned long args)
 				__func__);
 		retval = -EIO;
 		goto err_ret;
+	}
+	/*
+	 * The bulk copy_from_user above transferred the userspace
+	 * pointer values for portinfo and tbl_info into kernel struct
+	 * fields. Stash them in temp arrays and NULL the struct fields
+	 * immediately, so any err_ret path between here and the
+	 * get_*_info() calls (which replace the field with a kernel
+	 * allocation) doesn't have release_cfg_info() kfree() a
+	 * userspace address — that would panic the kernel.
+	 */
+	for (ii = 0; ii < num_fmans; ii++) {
+		uspace_portinfo[ii] = (void __user *)fman_info[ii].portinfo;
+		uspace_tblinfo[ii] = (void __user *)fman_info[ii].tbl_info;
+		fman_info[ii].portinfo = NULL;
+		fman_info[ii].tbl_info = NULL;
 	}
 	if (copy_from_user(&ipr_info, (void *)params.ipr_info,
 				sizeof(struct cdx_ipr_info))) {
@@ -712,11 +760,16 @@ int cdx_ioc_set_dpa_params(unsigned long args)
 	}
 
 	for (ii = 0; ii < num_fmans; ii++) {
-		//get port info
+		/* Restore the userspace pointer immediately before the
+		 * get_*_info() call that copies from it. On success the
+		 * helper replaces finfo->portinfo / tbl_info with a kernel
+		 * allocation; on failure it must leave the field as NULL or
+		 * a kernel pointer so release_cfg_info() can safely kfree. */
+		finfo->portinfo = (struct cdx_port_info *)uspace_portinfo[ii];
 		retval = get_port_info(finfo);
 		if (retval)
 			goto err_ret;
-		//get cc table info
+		finfo->tbl_info = (struct table_info *)uspace_tblinfo[ii];
 		retval = get_cctbl_info(finfo);
 		if (retval)
 			goto err_ret;
@@ -794,10 +847,14 @@ int cdx_ioc_set_dpa_params(unsigned long args)
 	}
 	display_dpa_cfg();
 	mutex_unlock(&dpa_cfg_lock);
+	kfree(uspace_portinfo);
+	kfree(uspace_tblinfo);
 	return 0;
 err_ret:
 	release_cfg_info();
 	mutex_unlock(&dpa_cfg_lock);
+	kfree(uspace_portinfo);
+	kfree(uspace_tblinfo);
 	return retval;
 }
 

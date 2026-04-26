@@ -583,8 +583,11 @@ static U16 bridge_flow_entry_handle(void *pcmd, U16 cmd_len, U16 *out_reply_len)
  * M_bridge_handle_control takes cmd_code as an argument — old
  * cmdproc passed the matching code through. Split into two
  * wrappers here because the dispatcher doesn't forward cmd_code.
- * Neither the old cmdproc nor the inner handler length-checks
- * these, so CDX_CMD_VAR(0, U16_MAX) preserves behavior.
+ * Both wrappers expect a L2BridgeControlCommand (read of
+ * prsp->mode_timeout); the table entries below set min_len to
+ * enforce that. The original cmdproc accepted any length here, but
+ * tightening matches the A1b validator-table policy and the inner
+ * handler can only read meaningful bytes from the documented size.
  */
 static U16 bridge_flow_timeout_handle(void *pcmd, U16 cmd_len, U16 *out_reply_len)
 {
@@ -598,6 +601,11 @@ static U16 bridge_mode_handle(void *pcmd, U16 cmd_len, U16 *out_reply_len)
 	return (U16)M_bridge_handle_control(CMD_RX_L2BRIDGE_MODE, pcmd, cmd_len);
 }
 
+/*
+ * M_bridged_itf_update reads ifname, is_bridged, and br_macaddr from
+ * pcmd as a BridgedItfCommand. min_len = sizeof(BridgedItfCommand)
+ * matches what the inner actually dereferences.
+ */
 static U16 bridged_itf_update_handle(void *pcmd, U16 cmd_len, U16 *out_reply_len)
 {
 	(void)out_reply_len;
@@ -613,12 +621,12 @@ static const struct cdx_cmd_spec bridge_cmd_table[] = {
 	 * sizeof(L2BridgeQueryEntryResponse); the buffer must hold
 	 * that, so min == sizeof(...).
 	 *
-	 * FLOW_TIMEOUT, MODE, BRIDGED_ITF_UPDATE pass pcmd through to
-	 * inner M_bridge_handle_control / M_bridged_itf_update wrappers
-	 * that don't length-check either. Kept permissive (CDX_CMD_VAR
-	 * 0..U16_MAX) to preserve pre-migration behaviour; tightening
-	 * those would require auditing each inner's expected struct
-	 * shape across cmd_codes. */
+	 * FLOW_TIMEOUT, MODE: inner M_bridge_handle_control reads
+	 * prsp->mode_timeout (sizeof(L2BridgeControlCommand)).
+	 *
+	 * BRIDGED_ITF_UPDATE: inner M_bridged_itf_update reads ifname,
+	 * is_bridged, br_macaddr (sizeof(BridgedItfCommand)).
+	 */
 	CDX_CMD_VAR(CMD_RX_L2BRIDGE_ENABLE,       0, U16_MAX, NULL, bridge_noop_handle),
 	CDX_CMD_VAR(CMD_RX_L2BRIDGE_ADD,          0, U16_MAX, NULL, bridge_noop_handle),
 	CDX_CMD_VAR(CMD_RX_L2BRIDGE_REMOVE,       0, U16_MAX, NULL, bridge_noop_handle),
@@ -626,9 +634,9 @@ static const struct cdx_cmd_spec bridge_cmd_table[] = {
 	CDX_CMD_VAR(CMD_RX_L2BRIDGE_FLOW_RESET,   0, U16_MAX, NULL, bridge_noop_handle),
 	CDX_CMD_VAR(CMD_RX_L2BRIDGE_QUERY_ENTRY,  sizeof(L2BridgeQueryEntryResponse), U16_MAX, NULL, bridge_query_entry_handle),
 	CDX_CMD    (CMD_RX_L2BRIDGE_FLOW_ENTRY,   L2BridgeL2FlowEntryCommand, bridge_flow_entry_handle),
-	CDX_CMD_VAR(CMD_RX_L2BRIDGE_FLOW_TIMEOUT, 0, U16_MAX, NULL, bridge_flow_timeout_handle),
-	CDX_CMD_VAR(CMD_RX_L2BRIDGE_MODE,         0, U16_MAX, NULL, bridge_mode_handle),
-	CDX_CMD_VAR(CMD_BRIDGED_ITF_UPDATE,       0, U16_MAX, NULL, bridged_itf_update_handle),
+	CDX_CMD_VAR(CMD_RX_L2BRIDGE_FLOW_TIMEOUT, sizeof(L2BridgeControlCommand), U16_MAX, NULL, bridge_flow_timeout_handle),
+	CDX_CMD_VAR(CMD_RX_L2BRIDGE_MODE,         sizeof(L2BridgeControlCommand), U16_MAX, NULL, bridge_mode_handle),
+	CDX_CMD_VAR(CMD_BRIDGED_ITF_UPDATE,       sizeof(BridgedItfCommand),      U16_MAX, NULL, bridged_itf_update_handle),
 };
 
 static U16 M_bridge_cmdproc(U16 cmd_code, U16 cmd_len, U16 *p)

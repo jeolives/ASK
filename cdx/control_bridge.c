@@ -11,6 +11,7 @@
 
 #include <linux/module.h>
 #include <linux/kernel.h>
+#include <linux/etherdevice.h>
 #include <linux/random.h>
 #include <linux/siphash.h>
 #include "cdx.h"
@@ -345,6 +346,21 @@ static int M_bridge_handle_l2flow(U16 *p, U16 Length)
 
 	if (pcmd->proto) {
 		printk("%s::l3 flows not supported now\n", __func__);
+		return ERR_WRONG_COMMAND_PARAM;
+	}
+	/*
+	 * Validate source MAC: an L2 flow's source must be a unicast
+	 * address (not all-zero, not multicast/broadcast), otherwise the
+	 * entry cannot represent a real host and would corrupt the
+	 * forwarding table. Destination MAC may legitimately be multicast
+	 * (for multicast flows) but must not be all-zero.
+	 */
+	if (!is_valid_ether_addr(pcmd->srcaddr)) {
+		printk("%s::invalid source MAC (zero or multicast)\n", __func__);
+		return ERR_WRONG_COMMAND_PARAM;
+	}
+	if (is_zero_ether_addr(pcmd->destaddr)) {
+		printk("%s::invalid destination MAC (all zero)\n", __func__);
 		return ERR_WRONG_COMMAND_PARAM;
 	}
 	//fill flow params from command

@@ -56,7 +56,7 @@ int __cmmGetPPPoESession(FILE *fp, struct interface* ppp_itf)
 	while (fgets(buf, sizeof(buf), fp))
 	{
 		// Id   Address           Device     PPPDevice  Unit
-		if (sscanf(buf, "%04X%hhx:%hhx:%hhx:%hhx:%hhx:%hhx%16s%16s%d", &session_id, &macaddr[0], &macaddr[1], &macaddr[2], &macaddr[3], &macaddr[4], &macaddr[5], phys_ifname, ifname, &unit) == 10)
+		if (sscanf(buf, "%04X%hhx:%hhx:%hhx:%hhx:%hhx:%hhx%15s%15s%d", &session_id, &macaddr[0], &macaddr[1], &macaddr[2], &macaddr[3], &macaddr[4], &macaddr[5], phys_ifname, ifname, &unit) == 10)
 		{
 			ifindex = if_nametoindex(ifname);
 

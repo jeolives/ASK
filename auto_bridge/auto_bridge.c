@@ -148,7 +148,7 @@ static unsigned int l2flow_timeouts[L2FLOW_STATE_MAX] /*__read_mostly*/ = {
 };
 
 
-static const char *const l2flow_states_string[L2FLOW_STATE_MAX] __read_mostly = {
+static const char *const l2flow_states_string[L2FLOW_STATE_MAX] = {
 	[L2FLOW_STATE_SEEN]			= "SEEN",
 	[L2FLOW_STATE_CONFIRMED]		= "CONFIRMED", //Should not timeout here
 	[L2FLOW_STATE_LINUX]			= "LINUX",	

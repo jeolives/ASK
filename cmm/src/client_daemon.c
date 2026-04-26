@@ -1527,7 +1527,7 @@ int dumpmem(int argc, char *argv[])
 	}
 
 	addr = strtoul(argv[1], NULL, 16);
-	fd = open("/dev/mem", O_RDWR);
+	fd = open("/dev/mem", O_RDWR | O_CLOEXEC);
 	if (fd == -1) {
 		cmm_print(DEBUG_ERROR, "open() error. errno:%m\n");
 		return(1);

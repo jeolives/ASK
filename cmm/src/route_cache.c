@@ -1004,9 +1004,9 @@ static void cmmRouteFlushCache(int family)
 	const char buf[] = "0";
 
 	if (family == AF_INET)
-		fd = open("/proc/sys/net/ipv4/route/flush", O_WRONLY);
+		fd = open("/proc/sys/net/ipv4/route/flush", O_WRONLY | O_CLOEXEC);
 	else
-		fd = open("/proc/sys/net/ipv6/route/flush", O_WRONLY);
+		fd = open("/proc/sys/net/ipv6/route/flush", O_WRONLY | O_CLOEXEC);
 
 	if (fd < 0)
 	{

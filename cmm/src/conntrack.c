@@ -2672,7 +2672,7 @@ static int file_write(const char *filename, const void *buf, int size)
 {
 	int fd;
 
-	if ((fd = open(filename, O_WRONLY)) < 0)
+	if ((fd = open(filename, O_WRONLY | O_CLOEXEC)) < 0)
 	{
 		cmm_print(DEBUG_ERROR, "%s: open(%s) failed, %s\n", __func__, filename, strerror(errno));
 		goto err0;

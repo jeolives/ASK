@@ -323,7 +323,7 @@ static int get_port_info(struct cdx_fman_info *finfo)
 				cmodel.port[ii].name);
 #endif
 		//FM  name would be fm0, fm1 etc
-		sprintf(name, "fm%d", finfo->index);
+		snprintf(name, sizeof(name), "fm%d", finfo->index);
 		//look for fm name in the port name
 		if (strstr(cmodel.port[ii].name, name) == 0)
 			continue;
@@ -348,7 +348,7 @@ static int get_port_info(struct cdx_fman_info *finfo)
 	dist_info = (struct cdx_dist_info *)(port_info + ports);
 	//scan all ports associated with this fman
 	for (ii = 0; ii < cmodel.port_count; ii++) {
-		sprintf(name, "fm%d", finfo->index);
+		snprintf(name, sizeof(name), "fm%d", finfo->index);
 		if (strstr(cmodel.port[ii].name, name) == 0)
                         continue;
 		//fill all port related infor from model into cdx structures
@@ -360,17 +360,20 @@ static int get_port_info(struct cdx_fman_info *finfo)
 		//encode the type, speed, fm index and port index in device name
 		switch (cmodel.port[ii].type) {
 			case 0:
-				sprintf(port_info->name, "dpa-fman%d-oh@%d", 
+				snprintf(port_info->name, sizeof(port_info->name),
+					"dpa-fman%d-oh@%d",
 					port_info->fm_index, (port_info->index + 1));
 				port_info->type = 0;
 				break;
 			case 1:
-				sprintf(port_info->name, "dpa-fm%d-1G-eth%d", 
+				snprintf(port_info->name, sizeof(port_info->name),
+					"dpa-fm%d-1G-eth%d",
 					port_info->fm_index, port_info->index);
 				port_info->type = 1;
 				break;
 			case 2:
-				sprintf(port_info->name, "dpa-fm%d-10G-eth%d", 
+				snprintf(port_info->name, sizeof(port_info->name),
+					"dpa-fm%d-10G-eth%d",
 					port_info->fm_index, port_info->index);
 				port_info->type = 10;
 				break;
@@ -379,11 +382,19 @@ static int get_port_info(struct cdx_fman_info *finfo)
 					cmodel.port[ii].type);
 				break;
 		}
-		//scan all distributions associated with this port 
+		//scan all distributions associated with this port
 		for (jj = 0; jj < port_info->max_dist; jj++) {
 			uint32_t handle;
 
 			handle = cmodel.port[ii].schemes[jj];
+			/* fmc_model_t arrays are sized by scheme_count; handle
+			 * comes from XML, validate before indexing to avoid OOB
+			 * reads if the config file is malformed. */
+			if (handle >= cmodel.scheme_count) {
+				printf("%s::scheme handle %u out of range (%u)\n",
+					__func__, handle, cmodel.scheme_count);
+				continue;
+			}
 			dist_info->base_fqid = cmodel.scheme[handle].baseFqid;
 			dist_info->type = get_dist_type(&cmodel.scheme_name[handle][0]);
 			if (dist_info->type == -1) {
@@ -419,7 +430,7 @@ static int update_port_dist_info(struct cdx_fman_info *finfo)
 	port_info = finfo->portinfo;
 	//update all ports associated with this fman
 	for (ii = 0; ii < cmodel.port_count; ii++) {
-		sprintf(name, "fm%d", finfo->index);
+		snprintf(name, sizeof(name), "fm%d", finfo->index);
 		if (strstr(cmodel.port[ii].name, name) == 0)
 			continue;
 		dist_info = port_info->dist_info;
@@ -754,8 +765,8 @@ int dpa_init(void)
 	int retval;
 
 	//open cdx control device
-        sprintf(devname, "/dev/%s", CDX_CTRL_CDEVNAME);
-        cdx_dev_handle = open(devname, O_RDWR);
+        snprintf(devname, sizeof(devname), "/dev/%s", CDX_CTRL_CDEVNAME);
+        cdx_dev_handle = open(devname, O_RDWR | O_CLOEXEC);
         if (cdx_dev_handle < 0) {
                 printf("%s:unable to open dev %s\n", __func__,
                         devname);

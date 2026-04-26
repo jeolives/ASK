@@ -73,7 +73,7 @@ static int cmmResetVWD()
 	int sfd;
 
         memset(&cmd, 0, sizeof(cmd));
-	sfd = open(WIFI_FF_MASTER_IF, O_RDONLY);
+	sfd = open(WIFI_FF_MASTER_IF, O_RDONLY | O_CLOEXEC);
 
 	if ( sfd <= 0 )
 	{
@@ -104,7 +104,7 @@ static int cmmUpdateVWD(struct interface *itf, int req)
 
         memset(&cmd, 0, sizeof(cmd));
 
-	sfd = open(WIFI_FF_MASTER_IF, O_RDONLY);
+	sfd = open(WIFI_FF_MASTER_IF, O_RDONLY | O_CLOEXEC);
 	
 	if ( sfd <= 0 )
 	{
@@ -151,7 +151,7 @@ int cmmFeWiFiAddInterface(struct wifi_ff_entry *wifi_if, int vapid)
 	int sfd;
 
 	memset(&cmd, 0, sizeof(cmd));
-	sfd = open(WIFI_FF_MASTER_IF, O_RDONLY);
+	sfd = open(WIFI_FF_MASTER_IF, O_RDONLY | O_CLOEXEC);
 
 	if ( sfd <= 0 )
 	{
@@ -161,7 +161,7 @@ int cmmFeWiFiAddInterface(struct wifi_ff_entry *wifi_if, int vapid)
 	cmm_print(DEBUG_INFO, "Send VAP %s configure\n", wifi_if->ifname);
 
 	cmd.action = FPP_VWD_VAP_CONFIGURE;
-	strcpy(cmd.ifname, wifi_if->ifname);
+	STR_TRUNC_COPY(cmd.ifname, wifi_if->ifname, sizeof(cmd.ifname));
 	cmd.vap_id = vapid;
 	cmd.direct_path_rx = wifi_if->direct_path_rx;
 

@@ -197,7 +197,7 @@ const char *mac_ntop(const void *mac, char *buf, size_t len)
 /*Print CMM help*/
 void cmmHelp()
 {
-	cmm_print(DEBUG_STDOUT, cmm_help);
+	cmm_print(DEBUG_STDOUT, "%s", cmm_help);
 }
 
 /*****************************************************************
@@ -255,7 +255,7 @@ int cmmCreateDaemonPidFile()
 	int fp;
 	char buf[10+1+1]; /* int can have up to 10 chars + 1 for sign + 1 for trailing \0 */
 
-	fp = open(CMM_PID_FILE_PATH, O_WRONLY | O_CREAT | O_EXCL, 0644);
+	fp = open(CMM_PID_FILE_PATH, O_WRONLY | O_CREAT | O_EXCL | O_CLOEXEC, 0644);
 	if(fp < 0)
 	{
 		if(errno == EEXIST)
@@ -267,7 +267,7 @@ int cmmCreateDaemonPidFile()
 				return -1;
 			}
 			// Now the old file is deleted, we can create a new one
-			fp = open(CMM_PID_FILE_PATH, O_WRONLY | O_CREAT | O_EXCL, 0644);
+			fp = open(CMM_PID_FILE_PATH, O_WRONLY | O_CREAT | O_EXCL | O_CLOEXEC, 0644);
 			if (fp < 0)
 			{
 				cmm_print(DEBUG_CRIT, "Error opening pid file %s\n", CMM_PID_FILE_PATH);

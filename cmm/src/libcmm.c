@@ -69,7 +69,7 @@ static int gen_uniqueid(cmm_handle_t *handle)
 	for (i = 0; i < 10; i++) {
 		handle->uniqueid = random();
 		snprintf(handle->path, sizeof(handle->path), "%s.%lu", "/tmp/cmm", handle->uniqueid);
-		handle->tmp_fd = open(handle->path, O_CREAT | O_EXCL, 0600);
+		handle->tmp_fd = open(handle->path, O_CREAT | O_EXCL | O_CLOEXEC, 0600);
 		if (handle->tmp_fd == -1)
 			continue;
 		else

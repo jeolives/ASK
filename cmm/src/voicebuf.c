@@ -46,7 +46,7 @@ int voice_file_load(FCI_CLIENT *fci_handle, cmmd_voice_file_load_cmd_t *cmd, u_i
 		goto err0;
 	}
 
-	file_fd = open(cmd->filename, O_RDONLY, 0);
+	file_fd = open(cmd->filename, O_RDONLY | O_CLOEXEC, 0);
 	if (file_fd < 0)
 	{
 		cmm_print(DEBUG_ERROR, "%s: open(%s) error, %s\n", __func__, cmd->filename, strerror(errno));
@@ -54,7 +54,7 @@ int voice_file_load(FCI_CLIENT *fci_handle, cmmd_voice_file_load_cmd_t *cmd, u_i
 		goto err0;
 	}
 
-	buf_fd = open(MEMBUF_CHAR_DEVNAME, O_WRONLY, 0);
+	buf_fd = open(MEMBUF_CHAR_DEVNAME, O_WRONLY | O_CLOEXEC, 0);
 	if (buf_fd < 0)
 	{
 		cmm_print(DEBUG_ERROR, "%s: open(%s) error, %s\n", __func__, MEMBUF_CHAR_DEVNAME, strerror(errno));

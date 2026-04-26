@@ -1205,107 +1205,61 @@ int cmmKeyCatch(unsigned short fcode, unsigned short len, unsigned short *payloa
 	return rc;
 }
 
-int cmmGetAuthAlgoName(unsigned char auth_algo, char* alg_name)
+/*
+ * Map IPsec auth/cipher algo numeric IDs to display strings.
+ *
+ * alg_name_size is the destination buffer size; callers must pass
+ * at least IPSEC_ALGO_NAME_MIN bytes (defined in keytrack.h, derived
+ * from the longest static string + NUL). STR_TRUNC_COPY truncates
+ * silently if alg_name_size is shorter — caller gets a partial
+ * string but no overflow.
+ */
+int cmmGetAuthAlgoName(unsigned char auth_algo, char *alg_name, size_t alg_name_size)
 {
-	switch (auth_algo)
-	{
-		case SADB_AALG_NONE:
-			strcpy(alg_name, "NONE");
-		break;
-		case SADB_AALG_MD5HMAC:
-			strcpy(alg_name, "MD5-HMAC");
-		break;
-		case SADB_AALG_SHA1HMAC:
-			strcpy(alg_name, "SHA1-HMAC");
-		break;
-		case SADB_X_AALG_SHA2_256HMAC:
-			strcpy(alg_name, "SHA2-256HMAC");
-		break;
-		case SADB_X_AALG_SHA2_384HMAC:
-			strcpy(alg_name, "SHA2-384HMAC");
-		break;
-		case SADB_X_AALG_SHA2_512HMAC:
-			strcpy(alg_name, "SHA2-512HMAC");
-		break;
-		case SADB_X_AALG_RIPEMD160HMAC:
-			strcpy(alg_name, "RIPEMD-160HMAC");
-		break;
-		case SADB_X_AALG_AES_XCBC_MAC:
-			strcpy(alg_name, "AES-XCBC");
-		break;
-		case SADB_X_AALG_NULL:
-			strcpy(alg_name, "NULL");
-		break;
-		default:
-			strcpy(alg_name, "UNKNOWN");
-		break;
+	const char *s;
 
+	switch (auth_algo) {
+	case SADB_AALG_NONE:            s = "NONE"; break;
+	case SADB_AALG_MD5HMAC:         s = "MD5-HMAC"; break;
+	case SADB_AALG_SHA1HMAC:        s = "SHA1-HMAC"; break;
+	case SADB_X_AALG_SHA2_256HMAC:  s = "SHA2-256HMAC"; break;
+	case SADB_X_AALG_SHA2_384HMAC:  s = "SHA2-384HMAC"; break;
+	case SADB_X_AALG_SHA2_512HMAC:  s = "SHA2-512HMAC"; break;
+	case SADB_X_AALG_RIPEMD160HMAC: s = "RIPEMD-160HMAC"; break;
+	case SADB_X_AALG_AES_XCBC_MAC:  s = "AES-XCBC"; break;
+	case SADB_X_AALG_NULL:          s = "NULL"; break;
+	default:                        s = "UNKNOWN"; break;
 	}
+	STR_TRUNC_COPY(alg_name, s, alg_name_size);
 	return 0;
 }
 
-int cmmGetCipherAlgoName(unsigned char cipher_algo, char* alg_name)
+int cmmGetCipherAlgoName(unsigned char cipher_algo, char *alg_name, size_t alg_name_size)
 {
-	switch (cipher_algo)
-	{
-		case SADB_EALG_NONE:
-			strcpy(alg_name, "NONE");
-		break;
-		case SADB_EALG_DESCBC:
-			strcpy(alg_name, "DES-CBC");
-		break;
-		case SADB_EALG_3DESCBC:
-			strcpy(alg_name, "3DES-CBC");
-		break;
-		case SADB_X_EALG_CASTCBC:
-			strcpy(alg_name, "CAST-CBC");
-		break;
-		case SADB_X_EALG_BLOWFISHCBC:
-			strcpy(alg_name, "BLOWFISH-CBC");
-		break;
-		case SADB_EALG_NULL:
-			strcpy(alg_name, "NULL");
-		break;
-		case SADB_X_EALG_AESCBC:
-			strcpy(alg_name, "AES-CBC");
-		break;
-		case SADB_X_EALG_AESCTR:
-			strcpy(alg_name, "AES-CTR");
-		break;
-		case SADB_X_EALG_AES_CCM_ICV8:
-			strcpy(alg_name, "AES-CCM-ICV8");
-		break;
-		case SADB_X_EALG_AES_CCM_ICV12:
-			strcpy(alg_name, "AES-CCM-ICV12");
-		break;
-		case SADB_X_EALG_AES_CCM_ICV16:
-			strcpy(alg_name, "AES-CCM-ICV16");
-		break;
-		case SADB_X_EALG_AES_GCM_ICV8:
-			strcpy(alg_name, "AES-GCM-ICV8");
-		break;
-		case SADB_X_EALG_AES_GCM_ICV12:
-			strcpy(alg_name, "AES-GCM-ICV12");
-		break;
-		case SADB_X_EALG_AES_GCM_ICV16:
-			strcpy(alg_name, "AES-GCM-ICV16");
-		break;
-		case SADB_X_EALG_NULL_AES_GMAC:
-			strcpy(alg_name, "AES-GMAC");
-		break;
-		case SADB_X_EALG_CAMELLIACBC:
-			strcpy(alg_name, "CAMELLIA-CBC");
-		break;
-		case SADB_X_EALG_SERPENTCBC:
-			strcpy(alg_name, "SERPENT-CBC");
-		break;
-		case SADB_X_EALG_TWOFISHCBC:
-			strcpy(alg_name, "TWOFISH-CBC");
-		break;
-		default:
-			strcpy(alg_name, "UNKNOWN");
-		break;
+	const char *s;
+
+	switch (cipher_algo) {
+	case SADB_EALG_NONE:            s = "NONE"; break;
+	case SADB_EALG_DESCBC:          s = "DES-CBC"; break;
+	case SADB_EALG_3DESCBC:         s = "3DES-CBC"; break;
+	case SADB_X_EALG_CASTCBC:       s = "CAST-CBC"; break;
+	case SADB_X_EALG_BLOWFISHCBC:   s = "BLOWFISH-CBC"; break;
+	case SADB_EALG_NULL:            s = "NULL"; break;
+	case SADB_X_EALG_AESCBC:        s = "AES-CBC"; break;
+	case SADB_X_EALG_AESCTR:        s = "AES-CTR"; break;
+	case SADB_X_EALG_AES_CCM_ICV8:  s = "AES-CCM-ICV8"; break;
+	case SADB_X_EALG_AES_CCM_ICV12: s = "AES-CCM-ICV12"; break;
+	case SADB_X_EALG_AES_CCM_ICV16: s = "AES-CCM-ICV16"; break;
+	case SADB_X_EALG_AES_GCM_ICV8:  s = "AES-GCM-ICV8"; break;
+	case SADB_X_EALG_AES_GCM_ICV12: s = "AES-GCM-ICV12"; break;
+	case SADB_X_EALG_AES_GCM_ICV16: s = "AES-GCM-ICV16"; break;
+	case SADB_X_EALG_NULL_AES_GMAC: s = "AES-GMAC"; break;
+	case SADB_X_EALG_CAMELLIACBC:   s = "CAMELLIA-CBC"; break;
+	case SADB_X_EALG_SERPENTCBC:    s = "SERPENT-CBC"; break;
+	case SADB_X_EALG_TWOFISHCBC:    s = "TWOFISH-CBC"; break;
+	default:                        s = "UNKNOWN"; break;
 	}
+	STR_TRUNC_COPY(alg_name, s, alg_name_size);
 	return 0;
 }
 
@@ -1499,7 +1453,7 @@ int cmmSAQueryProcess(char ** keywords, int tabStart, daemon_handle_t daemon_han
 		}
 		else
 		{
-			cmmGetAuthAlgoName(pSAQuery->auth_algo, ipsec_algo_name);
+			cmmGetAuthAlgoName(pSAQuery->auth_algo, ipsec_algo_name, sizeof(ipsec_algo_name));
 			sprintf(output_buf + len, " %s ", ipsec_algo_name );
 		}
 		cmm_print(DEBUG_STDOUT,"%s\n", output_buf);
@@ -1544,7 +1498,7 @@ int cmmSAQueryProcess(char ** keywords, int tabStart, daemon_handle_t daemon_han
 		}
 		else
 		{
-			cmmGetCipherAlgoName(pSAQuery->cipher_algo, ipsec_algo_name);
+			cmmGetCipherAlgoName(pSAQuery->cipher_algo, ipsec_algo_name, sizeof(ipsec_algo_name));
 			sprintf(output_buf + len, " %s ",ipsec_algo_name );
 		}
 		cmm_print(DEBUG_STDOUT,"%s", output_buf);

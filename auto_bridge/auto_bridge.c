@@ -382,19 +382,19 @@ static int abm_fdb_can_expire(unsigned char *mac_addr, struct net_device *dev)
 
 	key = abm_l2flow_hash_mac(mac_addr);
 
-	spin_lock(&abm_lock);
+	spin_lock_bh(&abm_lock);
 	list_for_each(entry,  &l2flow_table_by_src_mac[key]){
 		table_entry = container_of(entry, struct l2flowTable, list_by_src_mac);
 		if (ether_addr_equal(mac_addr, table_entry->l2flow.saddr)
 		&& (dev->ifindex == table_entry->idev_ifi))
 		{
 			if(table_entry->state == L2FLOW_STATE_FF){
-				spin_unlock(&abm_lock);
+				spin_unlock_bh(&abm_lock);
 				return 0;
 			}
 		}
 	}
-	spin_unlock(&abm_lock);
+	spin_unlock_bh(&abm_lock);
 	return 1;
 }
 static inline size_t abm_l2flow_msg_size(void)
@@ -1085,7 +1085,7 @@ static unsigned int abm_ebt_hook(void *priv,
 	if (unlikely(abm_build_l2flow(skb, &l2flow_temp, ethertype) < 0))
 		goto exit0;
 
-	spin_lock(&abm_lock);
+	spin_lock_bh(&abm_lock);
 
 	if (hooknum == NF_BR_FORWARD) {
 		if((l2flow_entry = abm_l2flow_find(&l2flow_temp)) == NULL){
@@ -1152,7 +1152,7 @@ static unsigned int abm_ebt_hook(void *priv,
 		}
 	}
 exit1:
-	spin_unlock(&abm_lock);
+	spin_unlock_bh(&abm_lock);
 exit0:
 	return NF_ACCEPT;
 }

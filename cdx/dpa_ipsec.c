@@ -724,7 +724,7 @@ static int create_ipsec_fqs(struct dpa_ipsec_sainfo *ipsecsa_info, uint32_t sche
 	}
 #endif /* UNIQUE_IPSEC_CP_FQID */
 
-	sprintf(sa_id_name, "0x%x", handle);
+	snprintf((char *)sa_id_name, sizeof(sa_id_name), "0x%x", handle);
 	if (cdx_create_dir_in_procfs(&ipsecsa_info->sa_proc_entry, sa_id_name, SA_DIR)) {
 		DPAIPSEC_ERROR("%s:: create pcd proc entry failed %s\n", 
 				__func__, sa_id_name);

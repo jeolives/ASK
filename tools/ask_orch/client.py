@@ -119,12 +119,13 @@ class Agent:
     ) -> dict:
         """Send an FCI command and return the parsed reply. When
         `failslab_times=N` is set, the agent wraps the netlink send in a
-        forked child with `make-it-fail` task-scoping armed + failslab
-        `probability=100`/`times=N` — the Nth kmalloc in the send's call
-        path (and everything it descends into, including the FCI handler
-        and cdx dispatcher) fails. Use this to exercise kernel err-path
-        unwind discipline: pair with a kmemleak cursor around each
-        sweep iteration to catch leaks on unwind."""
+        forked child and arms per-task fail-nth so that exactly the Nth
+        kmalloc made by that child (anywhere in the syscall path: netlink
+        scaffold, fci handler, cdx dispatcher, control_*.c handler) is
+        forced to return NULL. `ignore-gfp-wait` is flipped off so
+        GFP_KERNEL allocations are eligible. Use this for err-path unwind
+        discipline tests: pair with a kmemleak cursor around the sweep
+        to catch leaks on unwind."""
         body: dict = {
             "fcode":       fcode & 0xFFFF,
             "length":      length & 0xFFFF,
@@ -163,6 +164,42 @@ class Agent:
             r.raise_for_status()
             return await r.json()
 
+    async def netlink_listen_start(
+        self,
+        session: aiohttp.ClientSession,
+        *,
+        protocol: int,
+        group: int,
+    ) -> str:
+        """Subscribe to a netlink multicast group on the agent.
+
+        Returns a listener_id. The agent opens an AF_NETLINK socket on
+        `protocol`, joins multicast `group` via NETLINK_ADD_MEMBERSHIP,
+        and runs a daemon thread that buffers received frames until
+        netlink_listen_stop drains them. Use for kernel-emitted netlink
+        notifications (e.g. abm's NETLINK_L2FLOW=33 group=1 broadcasts).
+        """
+        body = {"protocol": int(protocol), "group": int(group)}
+        async with session.post(f"{self.base_url}/netlink-listen-start", json=body) as r:
+            r.raise_for_status()
+            return (await r.json())["listener_id"]
+
+    async def netlink_listen_stop(
+        self,
+        session: aiohttp.ClientSession,
+        listener_id: str,
+    ) -> dict:
+        """Drain buffered frames + close the listener socket.
+
+        Returns {"messages": [hex, ...], "count": int}; `messages` is
+        the list of raw netlink frames as hex strings, in arrival order.
+        """
+        async with session.post(
+            f"{self.base_url}/netlink-listen-stop/{listener_id}",
+        ) as r:
+            r.raise_for_status()
+            return await r.json()
+
     async def ioctl_send(
         self,
         session: aiohttp.ClientSession,
@@ -171,8 +208,16 @@ class Agent:
         data: bytes = b"",
         *,
         uid: int | None = None,
+        userns: bool = False,
+        drop_cap_net_admin: bool = False,
         timeout_ms: int = 1000,
     ) -> dict:
+        """Issue an ioctl on the agent. `uid` drops to an unprivileged
+        UID before open. `userns=True` wraps the call in an unmapped
+        new user namespace (covers item 5's non-init userns case).
+        `drop_cap_net_admin=True` runs capset() between open and ioctl
+        so the dispatcher sees a CAP_NET_ADMIN-less effective set on a
+        privileged-opened fd (item 5's mid-flight cap-drop case)."""
         body: dict = {
             "device":     device,
             "cmd":        int(cmd),
@@ -181,6 +226,10 @@ class Agent:
         }
         if uid is not None:
             body["uid"] = int(uid)
+        if userns:
+            body["userns"] = True
+        if drop_cap_net_admin:
+            body["drop_cap_net_admin"] = True
         async with session.post(f"{self.base_url}/ioctl/send", json=body) as r:
             r.raise_for_status()
             return await r.json()
@@ -219,36 +268,11 @@ class Agent:
             r.raise_for_status()
             return await r.json()
 
-    async def module_reload(
-        self,
-        session: aiohttp.ClientSession,
-        target: str,
-        *,
-        failslab_times: int = 0,
-        timeout_ms: int = 30000,
-    ) -> dict:
-        """Tear down ASK module stack down to `target`, modprobe target
-        (optionally with failslab armed during init), then restore the
-        rest of the stack. Used by A3 init-cascade fault-injection tests.
-        """
-        body = {
-            "target":         target,
-            "failslab_times": failslab_times,
-            "timeout_ms":     timeout_ms,
-        }
-        async with session.post(
-            f"{self.base_url}/module/reload", json=body,
-            timeout=aiohttp.ClientTimeout(total=timeout_ms / 1000.0 + 5),
-        ) as r:
-            r.raise_for_status()
-            return await r.json()
-
-
 # Node endpoints — overridable via env so the harness works on anyone's
-# lab setup. The orchestrator runs on the WAN-side host; LAN is the
-# traffic-generator VM/box behind the DUT's NAT.
+# lab setup. The orchestrator runs on the WAN-side host. The LAN VM
+# sits behind the DUT's NAT and has no IP path from the orchestrator;
+# LAN-side scripting is driven by Console.lan() (libvirt PTY) instead.
 _DEFAULT_PORT = "9110"
 
 TARGET = Agent("target", f"http://{os.environ.get('ASK_TARGET_IP', '10.0.0.62')}:{_DEFAULT_PORT}")
-LAN    = Agent("lan",    f"http://{os.environ.get('ASK_LAN_IP',    '172.30.0.10')}:{_DEFAULT_PORT}")
 WAN    = Agent("wan",    f"http://{os.environ.get('ASK_WAN_IP',    '127.0.0.1')}:{_DEFAULT_PORT}")

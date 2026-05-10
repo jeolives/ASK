@@ -39,6 +39,7 @@ dist/
 
 # Built binaries
 cmm/src/cmm
+cmm/src/cmm_rtnl_fuzzer
 dpa_app/dpa_app
 
 # Kbuild temporaries
@@ -53,3 +54,10 @@ sources/
 *.swp
 *.swo
 *~
+
+# Python bytecode
+__pycache__/
+*.pyc
+
+# Local setup notes — environment-specific, not part of the codebase
+IPSEC.md

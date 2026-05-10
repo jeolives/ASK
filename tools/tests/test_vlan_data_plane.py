@@ -34,6 +34,13 @@ import re
 import pytest
 import pytest_asyncio
 
+from _topology import (
+    TopologyStack,
+    dut_vlan_subif,
+    lan_run,
+    lan_vlan_subif,
+)
+
 
 LAN_NIC           = os.environ.get("ASK_LAN_NIC",       "enp4s0")
 TARGET_LAN_IF     = os.environ.get("ASK_TARGET_LAN_IF", "eth4")
@@ -74,62 +81,33 @@ def _iperf_receiver_gbps(log: str) -> float | None:
 
 # ---- setup / teardown ---------------------------------------------------
 
-async def _target_ip(session, target_agent, argv_tail: list[str]) -> None:
-    """Run an `ip` subcommand on the target, tolerating pre-existing state
-    during cleanup (exit code 2 from `ip link del` on a missing iface is
-    fine to ignore)."""
-    r = await target_agent.exec_cmd(session, ["ip"] + argv_tail)
-    return r
-
-
-def _lan_ip(lan_console, argv_tail: str) -> int:
-    """Run `ip <args>` on the lan host via UART, return exit code."""
-    return lan_console.run(f"ip {argv_tail}", timeout=5.0).rc
-
-
 @pytest_asyncio.fixture
 async def vlan_100_setup(aiohttp_session, target_agent, lan):
-    """Create eth4.100 on target and vlan100 on lan; tear both down."""
-    # Idempotent: nuke any stale state from a previous aborted run.
-    await _target_ip(aiohttp_session, target_agent,
-                     ["link", "del", TARGET_VLAN_IF])
-    _lan_ip(lan, f"link del {LAN_VLAN_IF} 2>/dev/null")
-
-    # Target side
-    r = await target_agent.exec_cmd(aiohttp_session, [
-        "ip", "link", "add", "link", TARGET_LAN_IF,
-        "name", TARGET_VLAN_IF, "type", "vlan", "id", str(VLAN_ID),
-    ])
-    assert r["rc"] == 0, f"target vlan link add failed: {r}"
-    await target_agent.exec_cmd(aiohttp_session, [
-        "ip", "addr", "add", TARGET_VLAN_CIDR, "dev", TARGET_VLAN_IF,
-    ])
-    await target_agent.exec_cmd(aiohttp_session, [
-        "ip", "link", "set", TARGET_VLAN_IF, "up",
-    ])
-
-    # Lan side (UART)
-    assert _lan_ip(lan,
-        f"link add link {LAN_NIC} name {LAN_VLAN_IF} type vlan id {VLAN_ID}"
-    ) == 0, "lan vlan link add failed"
-    _lan_ip(lan, f"addr add {LAN_VLAN_CIDR} dev {LAN_VLAN_IF}")
-    _lan_ip(lan, f"link set {LAN_VLAN_IF} up")
-    # /32 to wan via target's vlan100 address. Forces this flow's traffic
-    # to egress vlan100 instead of the default route on the LAN native
-    # interface — i.e. guarantees frames are VLAN-tagged.
-    _lan_ip(lan, f"route add {WAN_IPERF_IP}/32 via {TARGET_VLAN_ADDR} dev {LAN_VLAN_IF}")
-
-    # Give the subsystems a moment to see the new interface / cmm to
-    # observe the netlink IFLA event and install VLAN entries.
-    await asyncio.sleep(0.5)
-
-    yield
-
-    # --- teardown (best-effort; ignore errors) --------------------
-    _lan_ip(lan, f"route del {WAN_IPERF_IP}/32 2>/dev/null")
-    _lan_ip(lan, f"link del {LAN_VLAN_IF} 2>/dev/null")
-    await _target_ip(aiohttp_session, target_agent,
-                     ["link", "del", TARGET_VLAN_IF])
+    """Create eth4.100 on target and vlan100 on lan, both with /24 IPs.
+    LAN gets a /32 route to WAN_IPERF_IP forcing iperf3 traffic to egress
+    via vlan100 — guarantees the frames are VLAN-tagged on the wire.
+    """
+    stack = TopologyStack()
+    try:
+        await dut_vlan_subif(
+            stack, target_agent, aiohttp_session,
+            parent=TARGET_LAN_IF, vid=VLAN_ID, name=TARGET_VLAN_IF,
+            ipv4=TARGET_VLAN_CIDR,
+        )
+        await lan_vlan_subif(
+            stack, lan,
+            parent=LAN_NIC, vid=VLAN_ID, name=LAN_VLAN_IF,
+            ipv4=LAN_VLAN_CIDR,
+            routes=[
+                f"{WAN_IPERF_IP}/32 via {TARGET_VLAN_ADDR} dev {LAN_VLAN_IF}",
+            ],
+        )
+        # Give the subsystems a moment to see the new interface / cmm
+        # to observe the netlink IFLA event and install VLAN entries.
+        await asyncio.sleep(0.5)
+        yield
+    finally:
+        await stack.teardown("vlan_100_setup")
 
 
 # ---- the test ----------------------------------------------------------
@@ -142,8 +120,8 @@ async def test_vlan_tagged_flow_offloaded(
     baseline_count = _flow_count(baseline)
 
     # iperf3 picks up our /32 route automatically — no -B needed.
-    await asyncio.to_thread(
-        lan.run,
+    await lan_run(
+        lan,
         f"nohup iperf3 -c {WAN_IPERF_IP} -t {IPERF_DURATION_S} "
         f"> /tmp/iperf-vlan.log 2>&1 & echo started",
     )
@@ -158,7 +136,7 @@ async def test_vlan_tagged_flow_offloaded(
     )
 
     await asyncio.sleep(IPERF_DURATION_S + 1)
-    log_result = await asyncio.to_thread(lan.run, "cat /tmp/iperf-vlan.log")
+    log_result = await lan_run(lan, "cat /tmp/iperf-vlan.log")
     gbps = _iperf_receiver_gbps(log_result.stdout)
     assert gbps is not None, (
         f"iperf3 summary missing from log:\n{log_result.stdout}"

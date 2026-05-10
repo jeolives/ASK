@@ -155,35 +155,21 @@ async def eight_vlan_listeners(aiohttp_session, target_agent):
     emits CMD_VLAN_ENTRY REGISTER for each, adding them to the FMAN onif
     table — a prerequisite for create_exthash_entry4mcast_member to
     resolve get_onif_by_name(listener_name) during mcast ADD.
-
-    Tear them down unconditionally so a failing test can't leak 8
-    sticky netdevs onto the DUT.
     """
-    # Nuke any stale state from a previous aborted run.
-    for iface in LISTENER_IFACES:
-        await target_agent.exec_cmd(
-            aiohttp_session, ["ip", "link", "del", iface],
-        )
+    from _topology import TopologyStack, dut_vlan_subif
 
+    stack = TopologyStack()
     try:
         for i, iface in enumerate(LISTENER_IFACES):
-            r = await target_agent.exec_cmd(aiohttp_session, [
-                "ip", "link", "add", "link", TARGET_LAN_IF,
-                "name", iface, "type", "vlan", "id", str(BASE_VID + i),
-            ])
-            assert r["rc"] == 0, f"vlan add failed for {iface}: {r}"
-            r = await target_agent.exec_cmd(
-                aiohttp_session, ["ip", "link", "set", iface, "up"],
+            await dut_vlan_subif(
+                stack, target_agent, aiohttp_session,
+                parent=TARGET_LAN_IF, vid=BASE_VID + i, name=iface,
             )
-            assert r["rc"] == 0, f"vlan up failed for {iface}: {r}"
         # Let CMM pick up the NEWLINK events and push CMD_VLAN_ENTRY.
         await asyncio.sleep(1.0)
         yield LISTENER_IFACES
     finally:
-        for iface in LISTENER_IFACES:
-            await target_agent.exec_cmd(
-                aiohttp_session, ["ip", "link", "del", iface],
-            )
+        await stack.teardown("eight_vlan_listeners")
 
 
 @pytest_asyncio.fixture
@@ -311,3 +297,103 @@ async def test_mcast_8_listener_pagination_roundtrip(
         f"{report['leak_count']} ASK-code object(s):\n"
         + report.get("report", "")[:4000]
     )
+
+
+# --- Phase 2 item 3d: pagination correctness during live replication -----
+
+async def test_mcast_pagination_during_replication(
+    aiohttp_session, target_agent, splat_window,
+    eight_vlan_listeners, clean_mcast_group,
+):
+    """Run QUERY+QUERY_CONT while concurrent mcast UDP traffic is
+    flowing on the orchestrator's interface; assert the 8-listener
+    names round-trip correctly across pages.
+
+    Honest framing of what's actually exercised: the background
+    traffic is *not* registered as a matching mcast group on the DUT
+    (no FCI ADD has been issued for dst=239.7.2.99:47210), so it does
+    not actually drive replication into pMcastGrpInfo->members[].
+    What this test catches that the static-pagination test doesn't:
+    the QUERY/QUERY_CONT path runs in a system that's also handling
+    UDP socket sends and netlink chatter, ensuring the cursor's
+    behaviour isn't sensitive to incidental kernel/userspace activity
+    around it. Concurrent ADD/UPDATE/REMOVE during pagination is
+    already covered by Phase 1's test_concurrent_query_vs_mutator.
+
+    Traffic shape: one mcast UDP frame every 50 ms for the 2 s window
+    around the query. Local scapy from the orchestrator host.
+    """
+    listeners = eight_vlan_listeners
+
+    # Set up the 8-listener group exactly like the static test.
+    r = await _send_mc4(target_agent, aiohttp_session,
+                        CDX_MC_ACTION_ADD, listeners[:5])
+    assert r.get("reply_rc") == NO_ERR, f"ADD(5) failed: {r}"
+    r = await _send_mc4(target_agent, aiohttp_session,
+                        CDX_MC_ACTION_UPDATE, listeners[5:8])
+    assert r.get("reply_rc") == NO_ERR, f"UPDATE(+3) failed: {r}"
+
+    # Background mcast traffic — fire-and-forget loop in a worker task.
+    stop_event = asyncio.Event()
+
+    async def _traffic():
+        from scapy.all import IP, UDP, Raw, send  # type: ignore[import]
+
+        def _send_one(seq: int) -> None:
+            pkt = (IP(dst=MCAST_DST, ttl=4)
+                   / UDP(dport=47210, sport=47211)
+                   / Raw(b"3d_%04d" % seq))
+            send(pkt, count=1, verbose=0)
+
+        seq = 0
+        while not stop_event.is_set():
+            await asyncio.to_thread(_send_one, seq)
+            seq += 1
+            try:
+                await asyncio.wait_for(stop_event.wait(), timeout=0.05)
+            except asyncio.TimeoutError:
+                pass
+
+    traffic_task = asyncio.create_task(_traffic())
+    try:
+        # Warm up: let a few frames flow before pagination starts.
+        await asyncio.sleep(0.3)
+
+        r = await _send_mc4(target_agent, aiohttp_session,
+                            ACTION_QUERY, [])
+        assert r.get("reply_rc") == NO_ERR, (
+            f"QUERY during traffic failed: {r}"
+        )
+        page1 = bytes.fromhex(r["payload_hex"])
+        rc1, n1, names1 = _unpack_mc4_query_page(page1)
+        assert rc1 == NO_ERR
+        assert n1 == MC4_MAX_LISTENERS_IN_QUERY, (
+            f"page 1 during traffic: expected {MC4_MAX_LISTENERS_IN_QUERY} "
+            f"names, got {n1}"
+        )
+
+        r = await _send_mc4(target_agent, aiohttp_session,
+                            ACTION_QUERY_CONT, [])
+        assert r.get("reply_rc") == NO_ERR, (
+            f"QUERY_CONT during traffic failed: {r}"
+        )
+        page2 = bytes.fromhex(r["payload_hex"])
+        rc2, n2, names2 = _unpack_mc4_query_page(page2)
+        assert rc2 == NO_ERR
+        assert n2 == MC_MAX_LISTENERS_PER_GROUP - MC4_MAX_LISTENERS_IN_QUERY, (
+            f"page 2 during traffic: expected 3 names, got {n2}"
+        )
+
+        got = set(names1) | set(names2)
+        expected = set(listeners)
+        assert got == expected, (
+            f"listener round-trip failed during traffic:\n"
+            f"  expected: {sorted(expected)}\n"
+            f"  got:      {sorted(got)}"
+        )
+    finally:
+        stop_event.set()
+        try:
+            await asyncio.wait_for(traffic_task, timeout=2.0)
+        except asyncio.TimeoutError:
+            traffic_task.cancel()

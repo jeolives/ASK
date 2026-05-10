@@ -171,11 +171,45 @@ uint32_t ipsec_get_to_cp_fqid(void *handle)
 }
 #endif
 
+/*
+ * QMan Enqueue-Reject Notification on FQ_TO_SEC.
+ *
+ * SEC's QI rejects an enqueue (FQ retired/OOS, congestion, etc.) and the
+ * rejected FD is delivered here. The buffer behind the FD is still owned by
+ * its BMan pool — if we drop the message, the buffer is leaked permanently.
+ * Under sustained load that drains BPID 37, after which every subsequent
+ * SEC op silently fails with BPDERR-class errors and the SA wedges with no
+ * recovery short of a reboot (see ISSUES.md A24).
+ *
+ * Recycle the buffer back to its pool, count the rejection, and emit a
+ * rate-gated dmesg line so the wedge is observable. Runs in QMan
+ * portal-poll (softirq, no-sleep) — bman_release spinloops, no allocation.
+ */
+static atomic_t dpa_ipsec_ern_count = ATOMIC_INIT(0);
+
 static void dpa_ipsec_ern_cb(struct qman_portal *qm, struct qman_fq *fq,
 		const struct qm_mr_entry *msg)
 {
-	DPAIPSEC_ERROR("%s::fqid %x(%d)\n", __func__, fq->fqid, fq->fqid);
+	const struct qm_fd *fd = &msg->ern.fd;
+	struct dpa_bp *bp;
+	struct bm_buffer bmb;
+	int n = atomic_inc_return(&dpa_ipsec_ern_count);
+
+	if (n <= 16 || (n & 0xff) == 0)
+		pr_warn_ratelimited(
+			"cdx: IPsec ERN on FQ 0x%x rc=0x%02x bpid=%u addr=0x%llx (count=%d)\n",
+			fq->fqid, msg->ern.rc, fd->bpid,
+			(unsigned long long)qm_fd_addr_get64(fd), n);
+
+	bp = dpa_bpid2pool(fd->bpid);
+	if (bp) {
+		bmb.opaque = 0;
+		bm_buffer_set64(&bmb, qm_fd_addr(fd));
+		while (unlikely(bman_release(bp->pool, &bmb, 1, 0)))
+			cpu_relax();
+	}
 }
+
 
 
 static uint32_t ipsec_exception_pkt_cnt;
@@ -220,6 +254,21 @@ static enum qman_cb_dqrr_result ipsec_exception_pkt_handler(struct qman_portal *
 		struct qman_fq *fq,
 		const struct qm_dqrr_entry *dq)
 {
+
+	/*
+	 * ASK A22 defensive: if the dq'd fd is an IPsec output buffer
+	 * (BPID == ipsec_bp), this is a SEC encrypt result that should have
+	 * been consumed by the OH port hardware (channel 0x80a) and routed
+	 * through the cdx_esp4_cc PCD chain to eth3 TX. It hit our CPU cb
+	 * instead — meaning the OH-port channel binding is broken (A22).
+	 *
+	 * The default code path below assumes Ethernet-RX-pool semantics
+	 * (skb pointer embedded before the buffer), which is wrong for
+	 * pool 37: contig_fd_to_skb walks off into poison memory.
+	 *
+	 * Log, release the buffer back to the IPsec pool, and consume.
+	 * This keeps the system alive while we work the OH-port issue.
+	 */
 	uint8_t *ptr;
 	uint32_t len;
 	struct sk_buff *skb;
@@ -617,10 +666,14 @@ static int create_ipsec_pcd_fqs(struct ipsec_info *info, uint32_t schedule)
 			opts.fqd.context_a.stashing.data_cl = NUM_PKT_DATA_LINES_IN_CACHE;
 			opts.fqd.context_a.stashing.annotation_cl = NUM_ANN_LINES_IN_CACHE;
 			/* create FQ */
-			if (qman_create_fq(dpa_fq->fqid, 0, fq)) {
-				DPAIPSEC_ERROR("%s::qman_create_fq failed for fqid %d\n",
-						__func__, dpa_fq->fqid);
-				goto err_ret;
+			{
+				int qrc = qman_create_fq(dpa_fq->fqid, 0, fq);
+				if (qrc) {
+					DPAIPSEC_ERROR("%s::qman_create_fq failed for fqid 0x%x (%d): err=%d, dist=%d\n",
+							__func__, dpa_fq->fqid, dpa_fq->fqid,
+							qrc, jj);
+					goto err_ret;
+				}
 			}
 			opts.fqid = dpa_fq->fqid;
 			opts.count = 1;
@@ -632,11 +685,15 @@ static int create_ipsec_pcd_fqs(struct ipsec_info *info, uint32_t schedule)
 				schedule = QMAN_INITFQ_FLAG_SCHED;
 
 			/* init FQ */
-			if (qman_init_fq(fq, schedule, &opts)) {
-				DPAIPSEC_ERROR("%s::qman_init_fq failed for fqid %d\n",
-						__func__, dpa_fq->fqid);
-				qman_destroy_fq(fq, 0);
-				goto err_ret;
+			{
+				int qrc = qman_init_fq(fq, schedule, &opts);
+				if (qrc) {
+					DPAIPSEC_ERROR("%s::qman_init_fq failed for fqid 0x%x (%d): err=%d, dist=%d, base=0x%x, portid=%u, channel=0x%x\n",
+							__func__, dpa_fq->fqid, dpa_fq->fqid,
+							qrc, jj, fqbase & 0xFFFF, portid, dpa_fq->channel);
+					qman_destroy_fq(fq, 0);
+					goto err_ret;
+				}
 			}
 			cdx_create_type_fqid_info_in_procfs(fq, PCD_DIR, oh_iface_info->pcd_proc_entry, NULL);
 #ifdef DPA_IPSEC_DEBUG
@@ -867,6 +924,7 @@ static int create_ipsec_fqs(struct dpa_ipsec_sainfo *ipsecsa_info, uint32_t sche
 			goto err_ret4;
 			return FAILURE;
 		}
+
 		ipsec_addfq_to_exceptionfq_list(dpa_fq, &ipsecinfo);
 
 		if (ii == FQ_FROM_SEC)
@@ -899,20 +957,23 @@ err_ret3:
 		fq = &(ipsecsa_info->sec_fq[ii-1].fq_base);
 		ipsec_delfq_from_exceptionfq_list(fq->fqid,&ipsecinfo);
 		if (qman_retire_fq(fq, NULL)) {
-			DPAIPSEC_ERROR("%s::Failed to retire FQ %x(%d)\n", 
+			DPAIPSEC_ERROR("%s::Failed to retire FQ %x(%d)\n",
 					__func__, fq->fqid, fq->fqid);
 			return FAILURE;
 		}
 		if (qman_oos_fq(fq)) {
-			DPAIPSEC_ERROR("%s::Failed to retire FQ %x(%d)\n", 
+			DPAIPSEC_ERROR("%s::Failed to retire FQ %x(%d)\n",
 					__func__, fq->fqid, fq->fqid);
 			return FAILURE;
 		}
 		cdx_remove_fqid_info_in_procfs(fq->fqid);
 		qman_destroy_fq(fq, 0);
 	}
-	if (ipsecsa_info->sa_proc_entry)
+	if (ipsecsa_info->sa_proc_entry) {
 		proc_remove(((cdx_proc_dir_entry_t *)(ipsecsa_info->sa_proc_entry))->proc_dir);
+		kfree(ipsecsa_info->sa_proc_entry);
+		ipsecsa_info->sa_proc_entry = NULL;
+	}
 err_ret2:
 #ifdef UNIQUE_IPSEC_CP_FQID
 	/*TODO : qman_release_fqid_range */
@@ -1133,14 +1194,38 @@ static int add_ipsec_bpool(struct ipsec_info *info)
 	bp->config_count = IPSEC_BUFCOUNT;
 	bp->free_buf_cb = _dpa_bp_free_pf;
 	if (dpa_bp_alloc(bp, bp->dev)) {
-		DPAIPSEC_ERROR("%s::dpa_bp_alloc failed for ipsec\n", 
+		DPAIPSEC_ERROR("%s::dpa_bp_alloc failed for ipsec\n",
 				__func__);
 		kfree(bp);
 		return -1;
 	}
 	DPAIPSEC_INFO("%s::bp->size :%zu, bpid %d\n",
 			__func__, bp->size, bp->bpid);
+	printk (KERN_INFO"\n ################## %s::bp->size :%zu, bpid %d\n",
+			__func__, bp->size, bp->bpid);
 	info->ipsec_bp = bp;
+
+	/*
+	 * Seed the BMan pool. dpa_bp_alloc only registers the pool with BMan;
+	 * SEC needs *buffers* in it to write encrypted output. Without this
+	 * call the pool is empty, every cdx-format SEC submission lands in
+	 * QISTA_BPDERR and is silently dropped (no ERN, no error response,
+	 * ob_rq_encrypted never increments).
+	 *
+	 * act_skb=true is load-bearing: ipsec_exception_pkt_handler routes
+	 * inbound-decrypt-result frames through contig_fd_to_skb, which reads
+	 * an embedded skb back-pointer at vaddr - sizeof(void *). Without
+	 * skb-backed buffers the read returns slab poison and the cb faults
+	 * in softirq context.
+	 */
+	if (dpaa_bp_alloc_n_add_buffs(bp, IPSEC_BUFCOUNT, 1)) {
+		DPAIPSEC_ERROR("%s::dpaa_bp_alloc_n_add_buffs failed for ipsec\n",
+				__func__);
+		bman_free_pool(bp->pool);
+		kfree(bp);
+		info->ipsec_bp = NULL;
+		return -1;
+	}
 
 	return 0;
 }
@@ -1164,24 +1249,24 @@ int cdx_dpa_get_ipsec_pool_info(uint32_t *bpid, uint32_t *buf_size)
 
 }
 
-void *cdx_dpa_ipsecsa_alloc(struct ipsec_info *info, uint32_t handle) 
+void *cdx_dpa_ipsecsa_alloc(struct ipsec_info *info, uint32_t handle)
 {
 	struct dpa_ipsec_sainfo *sainfo;
 
 	sainfo = (struct dpa_ipsec_sainfo *)
 		kzalloc(sizeof(struct dpa_ipsec_sainfo), GFP_KERNEL);
 	if (!sainfo) {
-		DPAIPSEC_ERROR("%s::Error in allocating sainfo\n", 
+		DPAIPSEC_ERROR("%s::Error in allocating sainfo\n",
 				__func__);
 		return NULL;
-	}	
+	}
 	memset(sainfo, 0, sizeof(struct dpa_ipsec_sainfo));
 	//create fqs in scheduled state
 	if (create_ipsec_fqs(sainfo, 1, handle)) {
 		kfree(sainfo);
 		return NULL;
 	}
-	return sainfo; 	
+	return sainfo;
 }
 
 /* change the state of frame queues */
@@ -1203,7 +1288,7 @@ int cdx_dpa_ipsec_retire_fq(void *handle, int fq_num)
 	return ret;
 }
 
-int cdx_dpa_ipsecsa_release(void *handle) 
+int cdx_dpa_ipsecsa_release(void *handle)
 {
 	struct dpa_ipsec_sainfo *sainfo;
 	struct dpa_fq *dpa_fq;
@@ -1217,11 +1302,23 @@ int cdx_dpa_ipsecsa_release(void *handle)
 
 	for (ii = 0; ii < NUM_FQS_PER_SA; ii++) {
 		dpa_fq = &sainfo->sec_fq[ii];
-		fq = &dpa_fq->fq_base; 
+		fq = &dpa_fq->fq_base;
 		ipsec_delfq_from_exceptionfq_list(fq->fqid,&ipsecinfo);
 		if (qman_oos_fq(fq)) {
-			DPAIPSEC_ERROR("%s::Failed to retire FQ %x(%d)\n", 
-					__func__, fq->fqid, fq->fqid);
+			/*
+			 * FQ is left in qman_fq_state_retired (not OOS).
+			 * Calling qman_destroy_fq(fq, 0) would itself fail
+			 * (precondition: OOS unless QMAN_FQ_DESTROY_PARKED),
+			 * and freeing sainfo would leave QMan holding a
+			 * dangling pointer for any future ERN/DQRR callback
+			 * — UAF. Leak sainfo + remaining FQ slots
+			 * intentionally; A24b's deferred-release timer cap
+			 * + ERN counter (dpa_ipsec_ern_count) make this
+			 * visible to the operator.
+			 */
+			pr_warn_ratelimited(
+				"cdx: qman_oos_fq failed on FQ 0x%x — leaking SA resources to avoid UAF (A24b)\n",
+				fq->fqid);
 			return FAILURE;
 		}
 		cdx_remove_fqid_info_in_procfs(fq->fqid);
@@ -1230,7 +1327,14 @@ int cdx_dpa_ipsecsa_release(void *handle)
 	if (sainfo->sa_proc_entry)
 	{
 		proc_remove(((cdx_proc_dir_entry_t *)(sainfo->sa_proc_entry))->proc_dir);
+		kfree(sainfo->sa_proc_entry);
 	}
+	/* shdesc_mem was allocated in create_ipsec_fqs and the SEC shared
+	 * descriptor lives inside it (sainfo->shared_desc points into this
+	 * buffer with PTR_ALIGN offset). The err_ret1 unwind in
+	 * create_ipsec_fqs frees it on partial-init failure; this is the
+	 * matching free on the normal release path. */
+	kfree(sainfo->shdesc_mem);
 #ifdef  UNIQUE_IPSEC_CP_FQID
 	qman_release_fqid_range(sainfo->sec_fq[FQ_FROM_SEC].fqid, NUM_FQS_PER_SA);
 #endif /* UNIQUE_IPSEC_CP_FQID */

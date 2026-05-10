@@ -3,6 +3,7 @@ LICENSE = "MIT"
 
 IMAGE_INSTALL = " \
     busybox \
+    coreutils \
     base-files \
     shadow \
     kmod \
@@ -16,6 +17,10 @@ IMAGE_INSTALL = " \
     nftables \
     bridge-utils \
     conntrack-tools \
+    ppp \
+    ppp-oe \
+    kernel-module-ppp-generic \
+    kernel-module-pppoe \
     tcpdump \
     iperf3 \
     netcat \
@@ -32,16 +37,21 @@ IMAGE_INSTALL = " \
     ltrace \
     gdb \
     file \
+    sysstat \
     \
     \
     cdx \
     fci \
     auto-bridge \
     sfp-led \
+    lp5812-driver \
     config \
     kernel-module-nf-conntrack-netlink \
     kernel-module-xt-conntrack \
     kernel-module-xt-masquerade \
+    kernel-module-ip6-tables \
+    kernel-module-ip6table-filter \
+    kernel-module-ip6table-mangle \
     cmm \
     dpa-app \
     dnsmasq \

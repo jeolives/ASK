@@ -19,12 +19,17 @@ site; override for other deployments):
 
     ASK_TARGET_IP       agent HTTP host (default 10.0.0.62)
     ASK_TARGET_DEV      target serial device (default /dev/ttyUSB0)
-    ASK_LAN_IP          LAN-side agent HTTP host (default 172.30.0.10)
     ASK_LAN_VM          libvirt domain for LAN UART (default "loki")
     ASK_LAN_USER        LAN VM serial login user (default root)
     ASK_LAN_PASSWORD    LAN VM serial login password (default password)
     ASK_WAN_IP          WAN-side agent HTTP host (default 127.0.0.1)
     ASK_WAN_IPERF_IP    iperf3 server on the WAN side (default 10.0.0.141)
+
+The LAN VM is reached only via libvirt PTY (Console.lan()) — it sits
+behind the DUT's NAT and has no IP path from the orchestrator, by
+design. Tests drive LAN-side work through the UART; parallel-shape
+work uses backgrounded shell processes coordinated via filesystem
+state (see test_mcast_replication.py for the pattern).
 """
 
 from __future__ import annotations
@@ -37,6 +42,8 @@ import pytest_asyncio
 
 from ask_orch import client
 from ask_orch.uart import Console
+
+from _dmesg_allowlist import filter_splats, load_allowlist
 
 
 LAN_USER     = os.environ.get("ASK_LAN_USER",     "root")
@@ -60,6 +67,13 @@ async def aiohttp_session():
 @pytest.fixture(scope="session")
 def target_agent():
     return client.TARGET
+
+
+# Loaded once per session. An expired entry raises here, failing the suite
+# at collection rather than letting a stale suppressor mask a regression.
+@pytest.fixture(scope="session")
+def dmesg_allowlist():
+    return load_allowlist()
 
 
 @pytest_asyncio.fixture(autouse=True)
@@ -91,20 +105,23 @@ def lan():
 # ---- per-test ------------------------------------------------------------
 
 @pytest_asyncio.fixture
-async def splat_window(aiohttp_session, target_agent):
+async def splat_window(request, aiohttp_session, target_agent, dmesg_allowlist):
     """Wrap a test in a capture window; fail if new kernel splats appear.
 
     Even if the test's main assertion failed, run the splat check — a
     sanitizer report is independently important and surfacing both
     signals beats hiding one.
+
+    Splat filtering is two-stage: the agent emits everything matching
+    SPLAT_RE; this fixture then drops anything in the checked-in
+    allowlist (golden/dmesg_allowlist.yaml). Test authors should *not*
+    add inline filters here — extend the YAML.
     """
     cap_id = await target_agent.capture_start(aiohttp_session, ifaces=["eth3", "eth4"])
     yield cap_id
     result = await target_agent.capture_stop(aiohttp_session, cap_id)
-    # Splat false-positive filtering happens agent-side now (see
-    # askd_agent.dmesg.has_splat). Anything in result["splats"] is
-    # already a real splat — no further filtering here.
-    splats = result.get("splats", [])
+    raw = result.get("splats", [])
+    splats = filter_splats(raw, request.node.nodeid, dmesg_allowlist)
     assert not splats, (
         f"kernel splats during test ({len(splats)}): "
         + "; ".join(s.strip() for s in splats[:3])

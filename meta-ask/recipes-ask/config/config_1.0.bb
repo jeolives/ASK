@@ -6,6 +6,7 @@ FILESEXTRAPATHS:prepend := "${THISDIR}/files:"
 
 SRC_URI = "file://S03debugfs \
            file://S05ask-modules \
+           file://S20status-leds \
            file://S40gateway-setup \
            file://S50cmm \
            file://dnsmasq-gateway.conf \
@@ -16,6 +17,23 @@ SRC_URI = "file://S03debugfs \
 S = "${UNPACKDIR}"
 
 RDEPENDS:${PN} += "dnsmasq iptables iproute2 cmm"
+
+# These files are installed from ${ASK_SRCROOT} (outside SRC_URI's reach).
+# Without listing them as task input checksums, bitbake's sstate signature for
+# do_install doesn't change when their *content* does — meaning a fresh kas
+# build silently restores the previous (stale) version from sstate. Each
+# entry is "<path>:True" so bitbake hashes the file and the task re-runs on
+# any content change.
+do_install[file-checksums] += " \
+    ${ASK_SRCROOT}/config/gateway-dk/cdx_cfg.xml:True \
+    ${ASK_SRCROOT}/dpa_app/files/etc/cdx_pcd.xml:True \
+    ${ASK_SRCROOT}/dpa_app/files/etc/cdx_sp.xml:True \
+    ${ASK_SRCROOT}/sources/fmc/etc/fmc/config/hxs_pdl_v3.xml:True \
+    ${ASK_SRCROOT}/sources/fmc/etc/fmc/config/cfgdata.xsd:True \
+    ${ASK_SRCROOT}/sources/fmc/etc/fmc/config/netpcd.xsd:True \
+    ${ASK_SRCROOT}/config/ask-modules.conf:True \
+    ${ASK_SRCROOT}/config/fastforward:True \
+"
 
 fakeroot do_install() {
     # Board-specific FMAN port config (consumed by dpa_app / fmc).
@@ -67,6 +85,12 @@ fakeroot do_install() {
     # CMM (ASK connection manager) — depends on cdx/fci being loaded first.
     install -m 0755 ${UNPACKDIR}/S50cmm ${D}${sysconfdir}/init.d/cmm
     ln -sf ../init.d/cmm ${D}${sysconfdir}/rcS.d/S50cmm
+
+    # Status LED config — runs after modules-load.d brings up leds-lp5812
+    # (S05ask-modules), but before the gateway/CMM bring-up so the cue is
+    # visible from early boot.
+    install -m 0755 ${UNPACKDIR}/S20status-leds ${D}${sysconfdir}/init.d/status-leds
+    ln -sf ../init.d/status-leds ${D}${sysconfdir}/rcS.d/S20status-leds
 }
 
 FILES:${PN} = " \
@@ -85,4 +109,6 @@ FILES:${PN} = " \
     ${sysconfdir}/dnsmasq-gateway.conf \
     ${sysconfdir}/init.d/cmm \
     ${sysconfdir}/rcS.d/S50cmm \
+    ${sysconfdir}/init.d/status-leds \
+    ${sysconfdir}/rcS.d/S20status-leds \
 "

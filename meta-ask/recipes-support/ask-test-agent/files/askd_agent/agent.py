@@ -13,6 +13,7 @@ import secrets
 import socket
 import struct
 import subprocess
+import threading
 from pathlib import Path
 
 from aiohttp import web
@@ -42,6 +43,8 @@ CMM_QUERY_TABLES = {
     "ipsec-sa",
     "mcast",
     "bridge",
+    "mc4",                  # IPv4 multicast group entries (FCI mc4)
+    "mc6",                  # IPv6 multicast group entries (FCI mc6)
 }
 
 
@@ -124,11 +127,16 @@ async def cmm_query(request: web.Request) -> web.Response:
     try:
         # Use argv form (no shell=True) — no injection risk even before the
         # whitelist, and cmm -c takes the query as a single argument.
+        # Capture as bytes (text=False) and decode with errors='replace':
+        # cmm's query output occasionally embeds non-UTF-8 bytes (binary
+        # fields, raw memory in name buffers), which under text=True makes
+        # subprocess raise UnicodeDecodeError mid-_communicate and the
+        # handler returns 500 to the caller.
         r = await asyncio.get_event_loop().run_in_executor(
             None,
             lambda: subprocess.run(
                 ["cmm", "-c", f"query {table}"],
-                capture_output=True, text=True, timeout=5, check=False,
+                capture_output=True, timeout=5, check=False,
             ),
         )
     except FileNotFoundError:
@@ -138,8 +146,8 @@ async def cmm_query(request: web.Request) -> web.Response:
     return web.json_response({
         "table":  table,
         "rc":     r.returncode,
-        "stdout": r.stdout,
-        "stderr": r.stderr,
+        "stdout": r.stdout.decode("utf-8", errors="replace"),
+        "stderr": r.stderr.decode("utf-8", errors="replace"),
     })
 
 
@@ -191,32 +199,40 @@ def _netlink_send_sync(
 _FAILSLAB_DIR = Path("/sys/kernel/debug/failslab")
 
 
-def _arm_failslab(times: int) -> None:
-    """Configure failslab to fault the next `times` kmalloc calls that come
-    from a task with /proc/self/make-it-fail set. Probability 100 so every
-    candidate inside the window deterministically fails. Callers must hold
-    the task-filter context alone (typically via fork) — arming in the
-    shared agent process would poison all subsequent allocations."""
-    (_FAILSLAB_DIR / "task-filter").write_text("Y\n")
-    (_FAILSLAB_DIR / "probability").write_text("100\n")
-    (_FAILSLAB_DIR / "times").write_text(f"{times}\n")
-    # `space` is a byte-budget countdown; zero it so `times` is the only gate.
+def _arm_failslab(n: int) -> None:
+    """Configure failslab to fault exactly the Nth kmalloc made by the
+    current task.
+
+    Mechanism: per-task `/proc/self/fail-nth` is the only correct primitive
+    for surgical fault injection here. Unlike `times`/`probability` (global
+    counters that drain on incidental allocations), fail_nth is decremented
+    only by the current task's kmallocs and bypasses all other failslab
+    gates (probability, task-filter, times, interval) — see
+    lib/fault-inject.c:should_fail_ex.
+
+    The wrapper `should_failslab` still filters on `ignore-gfp-wait` BEFORE
+    reaching should_fail_ex, so GFP_KERNEL allocations would be exempt
+    under the kernel default (Y). Flip it off here so cdx handler kmallocs
+    (all GFP_KERNEL) become eligible.
+    """
     try:
-        (_FAILSLAB_DIR / "space").write_text("0\n")
+        (_FAILSLAB_DIR / "ignore-gfp-wait").write_text("N\n")
     except OSError:
         pass
-    Path("/proc/self/make-it-fail").write_text("1\n")
+    Path("/proc/self/fail-nth").write_text(f"{n}\n")
 
 
 def _disarm_failslab() -> None:
-    """Best-effort disarm. Call before the child exits so global state
-    (probability, times) doesn't linger for the next test."""
+    """Best-effort disarm. Call before the child exits so the global
+    `ignore-gfp-wait` knob is back at the kernel default for the next test
+    (a left-on `N` would expose other tests to spurious GFP_KERNEL faults
+    via any latent fail-nth on long-running daemons)."""
     try:
-        (_FAILSLAB_DIR / "probability").write_text("0\n")
+        Path("/proc/self/fail-nth").write_text("0\n")
     except OSError:
         pass
     try:
-        Path("/proc/self/make-it-fail").write_text("0\n")
+        (_FAILSLAB_DIR / "ignore-gfp-wait").write_text("Y\n")
     except OSError:
         pass
 
@@ -387,12 +403,26 @@ async def fci_send(request: web.Request) -> web.Response:
     return web.json_response(result)
 
 
-def _run_isolated(work, uid: int | None, timeout_s: float) -> dict:
-    """Fork a subprocess, optionally drop to `uid`, call `work()`, pipe back
-    a result dict. Used for ioctl + file-write endpoints that the orchestrator
-    wants to run as an unprivileged user (G1 / H8).
+_CLONE_NEWUSER = 0x10000000
+
+
+def _enter_unmapped_userns() -> None:
+    """Create a new user namespace with no uid/gid mappings.
+
+    With no mapping, all uids in the namespace map to /proc/sys/kernel/
+    overflowuid (typically 65534) and capable() against init_user_ns
+    returns false — exactly what item 5's userns test wants to assert
+    on a CAP_NET_ADMIN-gated ioctl.
     """
-    import json
+    os.unshare(_CLONE_NEWUSER)
+
+
+def _run_isolated(
+    work, uid: int | None, timeout_s: float, *, userns: bool = False,
+) -> dict:
+    """Fork a subprocess, optionally drop to `uid` and/or enter an
+    unmapped new userns, call `work()`, pipe back a result dict.
+    """
     import pickle
 
     r_fd, w_fd = os.pipe()
@@ -401,6 +431,8 @@ def _run_isolated(work, uid: int | None, timeout_s: float) -> dict:
         os.close(r_fd)
         result: dict = {}
         try:
+            if userns:
+                _enter_unmapped_userns()
             if uid is not None:
                 # setresgid before setresuid (reverse is forbidden when
                 # dropping root — gid needs the privilege to change).
@@ -433,13 +465,66 @@ def _run_isolated(work, uid: int | None, timeout_s: float) -> dict:
         return {"error": f"child produced no result: {e}; raw={buf!r}"}
 
 
-def _ioctl_work(device: str, cmd: int, data_in: bytes) -> dict:
+# capset() ABI — mirror of <linux/capability.h>. Lets us drop a single
+# capability from the effective+permitted+inheritable sets between the
+# privileged open of /dev/cdx_ctrl and the ioctl, so the dispatcher's
+# capable(CAP_NET_ADMIN) check sees a stripped credential set.
+_LINUX_CAPABILITY_VERSION_3 = 0x20080522
+_CAP_NET_ADMIN = 12
+
+
+class _CapHeader(__import__("ctypes").Structure):
+    import ctypes as _ct
+    _fields_ = [("version", _ct.c_uint32), ("pid", _ct.c_int)]
+
+
+class _CapData(__import__("ctypes").Structure):
+    import ctypes as _ct
+    _fields_ = [
+        ("effective",   _ct.c_uint32),
+        ("permitted",   _ct.c_uint32),
+        ("inheritable", _ct.c_uint32),
+    ]
+
+
+def _drop_cap_net_admin() -> None:
+    import ctypes
+    libc = ctypes.CDLL("libc.so.6", use_errno=True)
+    libc.capget.argtypes = [ctypes.POINTER(_CapHeader), ctypes.POINTER(_CapData)]
+    libc.capget.restype  = ctypes.c_int
+    libc.capset.argtypes = [ctypes.POINTER(_CapHeader), ctypes.POINTER(_CapData)]
+    libc.capset.restype  = ctypes.c_int
+
+    hdr = _CapHeader(version=_LINUX_CAPABILITY_VERSION_3, pid=0)
+    data = (_CapData * 2)()
+    if libc.capget(ctypes.byref(hdr), data) != 0:
+        e = ctypes.get_errno()
+        raise OSError(e, f"capget: {os.strerror(e)}")
+    mask = ~(1 << _CAP_NET_ADMIN) & 0xFFFFFFFF
+    data[0].effective   &= mask
+    data[0].permitted   &= mask
+    data[0].inheritable &= mask
+    if libc.capset(ctypes.byref(hdr), data) != 0:
+        e = ctypes.get_errno()
+        raise OSError(e, f"capset: {os.strerror(e)}")
+
+
+def _ioctl_work(
+    device: str, cmd: int, data_in: bytes,
+    *, drop_cap_net_admin: bool = False,
+) -> dict:
     import fcntl
     try:
         fd = os.open(device, os.O_RDWR)
     except OSError as e:
         return {"rc": -1, "errno": e.errno, "error": f"open: {e.strerror}"}
     try:
+        if drop_cap_net_admin:
+            try:
+                _drop_cap_net_admin()
+            except OSError as e:
+                return {"rc": -1, "errno": e.errno,
+                        "error": f"capset: {e.strerror}"}
         buf = bytearray(data_in) if data_in else bytearray(0)
         try:
             rc = fcntl.ioctl(fd, cmd, buf, True) if data_in else fcntl.ioctl(fd, cmd, 0)
@@ -451,13 +536,14 @@ def _ioctl_work(device: str, cmd: int, data_in: bytes) -> dict:
 
 
 async def ioctl_send(request: web.Request) -> web.Response:
-    """POST {device, cmd, data_hex, [uid], [timeout_ms]} -> ioctl result.
+    """POST {device, cmd, data_hex, [uid], [userns], [drop_cap_net_admin],
+    [timeout_ms]} -> ioctl result.
 
-    Used for capability / bounds testing of /dev/cdx_ctrl and friends.
-    `uid` optionally drops to an unprivileged UID before the open/ioctl
-    (for G1-style tests). `data_hex` is the input buffer passed to the
-    kernel; on IOR/IOWR ioctls the kernel writes back into that buffer
-    and it comes back as `data_hex` in the response.
+    `uid` drops to an unprivileged UID before open (G1-style). `userns`
+    runs the call inside an unmapped CLONE_NEWUSER namespace (item 5
+    non-init userns case). `drop_cap_net_admin` does capset() between
+    open and ioctl so a privileged-opened fd hits the dispatcher with
+    a stripped effective set (item 5 mid-flight cap-drop case).
     """
     body = await _maybe_json(request)
     try:
@@ -469,13 +555,18 @@ async def ioctl_send(request: web.Request) -> web.Response:
     uid = body.get("uid")
     if uid is not None:
         uid = int(uid)
+    userns = bool(body.get("userns", False))
+    drop_cap_net_admin = bool(body.get("drop_cap_net_admin", False))
     timeout_s = float(body.get("timeout_ms", 1000)) / 1000.0
 
     def _work():
-        return _ioctl_work(device, cmd, data)
+        return _ioctl_work(device, cmd, data,
+                           drop_cap_net_admin=drop_cap_net_admin)
 
-    result = await asyncio.get_event_loop().run_in_executor(
-        None, _run_isolated, _work, uid, timeout_s,
+    loop = asyncio.get_event_loop()
+    result = await loop.run_in_executor(
+        None,
+        lambda: _run_isolated(_work, uid, timeout_s, userns=userns),
     )
     return web.json_response(result)
 
@@ -483,6 +574,9 @@ async def ioctl_send(request: web.Request) -> web.Response:
 _EXEC_ARGV0_ALLOWED = {
     "ip", "ethtool", "iptables", "modprobe", "rmmod", "insmod",
     "sysctl", "conntrack", "bridge", "tcpdump",
+    # Fuzz harness for cmm's RTNL parser; built from cmm/test/ via
+    # `make -C cmm fuzzer`, packaged into the test image alongside cmm.
+    "cmm_rtnl_fuzzer",
 }
 
 
@@ -506,10 +600,14 @@ async def exec_cmd(request: web.Request) -> web.Response:
         )
     timeout_s = float(body.get("timeout_ms", 5000)) / 1000.0
     try:
+        # bytes + errors='replace' decode — same rationale as cmm_query:
+        # any allowlisted command can emit non-UTF-8 bytes (tcpdump -X
+        # output, iptables names with high-byte chars, etc.) and the
+        # default text=True path raises UnicodeDecodeError → 500.
         r = await asyncio.get_event_loop().run_in_executor(
             None,
             lambda: subprocess.run(
-                argv, capture_output=True, text=True,
+                argv, capture_output=True,
                 timeout=timeout_s, check=False,
             ),
         )
@@ -520,8 +618,8 @@ async def exec_cmd(request: web.Request) -> web.Response:
     return web.json_response({
         "argv":   argv,
         "rc":     r.returncode,
-        "stdout": r.stdout,
-        "stderr": r.stderr,
+        "stdout": r.stdout.decode("utf-8", errors="replace"),
+        "stderr": r.stderr.decode("utf-8", errors="replace"),
     })
 
 
@@ -556,6 +654,117 @@ async def fs_write(request: web.Request) -> web.Response:
         None, _run_isolated, _work, uid, timeout_s,
     )
     return web.json_response(result)
+
+
+# Multicast subscription via setsockopt() — kernel uapi value, not in
+# the Python `socket` module on every distro we run against.
+_SOL_NETLINK            = 270
+_NETLINK_ADD_MEMBERSHIP = 1
+
+
+class _NetlinkListener:
+    """Per-id state for /netlink-listen-{start,stop}.
+
+    A blocking AF_NETLINK socket is read by a daemon thread that appends
+    each received frame to `frames` under `lock`. Stop closes the socket
+    (which unblocks recv with EBADF/0) and joins the thread.
+    """
+
+    def __init__(self, sock: socket.socket) -> None:
+        self.sock = sock
+        self.frames: list[bytes] = []
+        self.lock = threading.Lock()
+        self.stop = threading.Event()
+        self.thread = threading.Thread(target=self._run, daemon=True)
+
+    def _run(self) -> None:
+        while not self.stop.is_set():
+            try:
+                # 64K is the max netlink datagram size; truncation
+                # would lose part of a notification we'd then fail to
+                # parse. Use MSG_TRUNC if you need to know it happened.
+                buf = self.sock.recv(65536)
+            except OSError:
+                # Socket closed by stop() — exit cleanly.
+                return
+            if not buf:
+                return
+            with self.lock:
+                self.frames.append(buf)
+
+    def drain(self) -> list[bytes]:
+        with self.lock:
+            out, self.frames = self.frames, []
+        return out
+
+    def shutdown(self) -> None:
+        self.stop.set()
+        try:
+            self.sock.close()
+        except OSError:
+            pass
+        self.thread.join(timeout=2.0)
+
+
+async def netlink_listen_start(request: web.Request) -> web.Response:
+    """POST {protocol, group} -> {listener_id}.
+
+    Opens an AF_NETLINK socket on `protocol`, joins multicast `group`,
+    and spawns a daemon thread that buffers received frames. Pair with
+    /netlink-listen-stop/{listener_id} to drain + close. The thread-
+    based capture mirrors the tcpdump capture pattern: socket I/O off
+    the asyncio loop so the event-loop thread stays responsive.
+    """
+    body = await _maybe_json(request)
+    try:
+        protocol = int(body["protocol"])
+        group    = int(body["group"])
+    except (KeyError, ValueError, TypeError) as e:
+        return web.json_response({"error": f"bad request: {e}"}, status=400)
+    if not (1 <= group <= 32):
+        return web.json_response(
+            {"error": f"group must be 1..32 (netlink legacy mask range), got {group}"},
+            status=400,
+        )
+    try:
+        sock = socket.socket(socket.AF_NETLINK, socket.SOCK_RAW, protocol)
+        # bind(0, 0) — kernel allocates pid; nl_groups bitmask 0 means
+        # we don't ask for any groups via the legacy bind path. The
+        # NETLINK_ADD_MEMBERSHIP setsockopt below is the modern way
+        # (works for group ids beyond the 32-bit nl_groups bitmask).
+        sock.bind((0, 0))
+        sock.setsockopt(_SOL_NETLINK, _NETLINK_ADD_MEMBERSHIP, group)
+    except OSError as e:
+        return web.json_response(
+            {"error": f"netlink socket setup failed: errno={e.errno} {e.strerror}"},
+            status=500,
+        )
+    listener = _NetlinkListener(sock)
+    listener.thread.start()
+    listener_id = secrets.token_hex(8)
+    request.app["netlink_listeners"][listener_id] = listener
+    return web.json_response({"listener_id": listener_id})
+
+
+async def netlink_listen_stop(request: web.Request) -> web.Response:
+    """POST /netlink-listen-stop/{listener_id} -> {messages: [hex,...], count}.
+
+    Drains the buffered frames, closes the socket, joins the reader
+    thread. Frames are returned as hex strings so the JSON transport
+    is text-clean.
+    """
+    listener_id = request.match_info["listener_id"]
+    listener = request.app["netlink_listeners"].pop(listener_id, None)
+    if listener is None:
+        return web.json_response({"error": "unknown listener_id"}, status=404)
+    # shutdown() blocks on socket.close() + thread.join(); offload so
+    # the asyncio loop isn't stalled if the reader is mid-recv.
+    await asyncio.get_event_loop().run_in_executor(None, listener.shutdown)
+    frames = listener.drain()
+    return web.json_response({
+        "messages": [f.hex() for f in frames],
+        "count":    len(frames),
+    })
 
 
 async def netlink_send(request: web.Request) -> web.Response:
@@ -701,137 +910,10 @@ async def _maybe_json(request: web.Request) -> dict:
     return {}
 
 
-# ASK loadable-module stack. Listed in rmmod order (top-of-stack first):
-# auto_bridge depends on fci which depends on cdx, so unloading goes
-# auto_bridge -> fci -> cdx and modprobing goes in reverse.
-_ASK_MODULES = ("auto_bridge", "fci", "cdx")
-
-
-def _module_reload_init_work(target: str, failslab_times: int) -> dict:
-    """Inside a fork: configure failslab if requested, then modprobe.
-
-    Targeting subtlety: failslab's `times` counter is global, but
-    fires only on tasks tagged via /proc/<pid>/make-it-fail. If we
-    tagged this child (the work-runner), our own pre-modprobe kmallocs
-    (Python interpreter, subprocess.run scaffolding, fork-for-exec)
-    would consume the budget before modprobe even starts. So we
-    configure failslab globally here but defer the per-task tag to
-    `preexec_fn`, which runs in the modprobe child *after* fork but
-    *before* exec — every kmalloc from then on counts against `times`.
-
-    Even with this targeting, exec setup + modprobe userspace + the
-    finit_module syscall path all still happen before the module's
-    init function runs, so the first ~dozens of fault budgets are
-    spent on scaffolding. Sweeping `failslab_times` over a range that
-    extends past that scaffolding count is what gets the fault into
-    the actual init body.
-    """
-    armed = False
-    try:
-        if failslab_times > 0:
-            # Configure global failslab knobs but don't tag ourselves.
-            (_FAILSLAB_DIR / "task-filter").write_text("Y\n")
-            (_FAILSLAB_DIR / "probability").write_text("100\n")
-            (_FAILSLAB_DIR / "times").write_text(f"{failslab_times}\n")
-            try:
-                (_FAILSLAB_DIR / "space").write_text("0\n")
-            except OSError:
-                pass
-            armed = True
-
-            def _tag_modprobe_child():
-                # Runs in the modprobe child between fork and exec.
-                # No kmallocs in this Python callback are an issue —
-                # they happen before the tag is applied. The tag
-                # affects only allocations after the write below.
-                Path("/proc/self/make-it-fail").write_text("1\n")
-        else:
-            _tag_modprobe_child = None
-
-        proc = subprocess.run(
-            ["modprobe", target],
-            capture_output=True, timeout=15,
-            preexec_fn=_tag_modprobe_child,
-        )
-        return {
-            "init_rc": proc.returncode,
-            "init_stderr": proc.stderr.decode(errors="replace").strip(),
-            "init_stdout": proc.stdout.decode(errors="replace").strip(),
-        }
-    except subprocess.TimeoutExpired:
-        return {"init_rc": -1, "init_stderr": "modprobe timeout"}
-    except Exception as e:
-        return {"init_rc": -1, "init_stderr": f"{type(e).__name__}: {e}"}
-    finally:
-        if armed:
-            _disarm_failslab()
-
-
-async def module_reload(request: web.Request) -> web.Response:
-    """POST {target, [failslab_times], [timeout_ms]} -> reload result.
-
-    Tears down the ASK module stack from auto_bridge down to (and
-    including) `target`, modprobes `target` with optional failslab
-    arming during init, then restores the rest of the stack so the
-    system isn't left half-loaded for the next test.
-
-    Used by A3a-e fault-injection tests to probe init-path leak/UAF
-    behaviour. failslab=0 just exercises the rmmod/modprobe round-trip
-    (useful as a baseline / smoke).
-    """
-    body = await _maybe_json(request)
-    target = body.get("target")
-    if target not in _ASK_MODULES:
-        return web.json_response(
-            {"error": f"target must be one of {list(_ASK_MODULES)}"},
-            status=400,
-        )
-    failslab_times = int(body.get("failslab_times", 0))
-    timeout_s = float(body.get("timeout_ms", 30000)) / 1000.0
-
-    # Tear down stack from auto_bridge down to (and including) target.
-    rmmod_log: list[dict] = []
-    for mod in _ASK_MODULES:
-        proc = subprocess.run(["rmmod", mod], capture_output=True)
-        rmmod_log.append({
-            "module": mod,
-            "rc": proc.returncode,
-            "stderr": proc.stderr.decode(errors="replace").strip(),
-        })
-        if mod == target:
-            break
-
-    # Modprobe target with optional failslab — isolated child.
-    def _work():
-        return _module_reload_init_work(target, failslab_times)
-    init_result = await asyncio.get_event_loop().run_in_executor(
-        None, _run_isolated, _work, None, timeout_s,
-    )
-
-    # Restore the rest of the stack regardless of init outcome.
-    restore: list[dict] = []
-    order = list(reversed(_ASK_MODULES))
-    idx = order.index(target)
-    for mod in order[idx:]:
-        proc = subprocess.run(["modprobe", mod], capture_output=True)
-        restore.append({
-            "module": mod,
-            "rc": proc.returncode,
-            "stderr": proc.stderr.decode(errors="replace").strip(),
-        })
-
-    return web.json_response({
-        "target": target,
-        "failslab_times": failslab_times,
-        "rmmod_log": rmmod_log,
-        "init_result": init_result,
-        "restore": restore,
-    })
-
-
 def build_app() -> web.Application:
     app = web.Application()
     app["captures"] = {}
+    app["netlink_listeners"] = {}
     app.router.add_get("/health",            health)
     app.router.add_get("/counters",          counters_get)
     app.router.add_post("/capture-start",    capture_start)
@@ -842,10 +924,11 @@ def build_app() -> web.Application:
     app.router.add_post("/cmm/query",        cmm_query)
     app.router.add_post("/fci/send",         fci_send)
     app.router.add_post("/netlink/send",     netlink_send)
+    app.router.add_post("/netlink-listen-start", netlink_listen_start)
+    app.router.add_post("/netlink-listen-stop/{listener_id}", netlink_listen_stop)
     app.router.add_post("/ioctl/send",       ioctl_send)
     app.router.add_post("/fs/write",         fs_write)
     app.router.add_post("/exec",             exec_cmd)
-    app.router.add_post("/module/reload",    module_reload)
     return app
 
 
